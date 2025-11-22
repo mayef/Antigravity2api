@@ -9,14 +9,14 @@
     内置现代化管理后台，支持多账号轮询、Token 自动刷新、密钥管理与实时监控。
   </p>
   <p>
-    <a href="https://github.com/lwl2005/Antigravity-">
-      <img src="https://img.shields.io/badge/原项目-lwl2005/Antigravity-blue?style=flat-square&logo=github" alt="Original Project" />
+    <a href="https://github.com/liuw1535/antigravity2api-nodejs">
+      <img src="https://img.shields.io/badge/原项目-liuw1535/antigravity2api--nodejs-blue?style=flat-square&logo=github" alt="Original Project" />
     </a>
   </p>
 </div>
 
 > [!NOTE]
-> 本项目基于 [lwl2005/Antigravity-](https://github.com/lwl2005/Antigravity-) 进行开发和优化。
+> 本项目基于 [liuw1535/antigravity2api-nodejs](https://github.com/liuw1535/antigravity2api-nodejs) 进行开发和优化。
 
 ---
 
