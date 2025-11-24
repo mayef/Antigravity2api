@@ -148,7 +148,10 @@ app.post('/v1/chat/completions', async (req, res) => {
       stream = false;
     }
 
-    const requestBody = generateRequestBody(messages, model, params, tools);
+    const authHeader = req.headers.authorization;
+    const apiKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+
+    const requestBody = generateRequestBody(messages, model, params, tools, apiKey);
 
 
     if (stream) {

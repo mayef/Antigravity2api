@@ -201,7 +201,39 @@ function convertOpenAIToolsToAntigravity(openaiTools) {
     }
   })
 }
-function generateRequestBody(openaiMessages, modelName, parameters, openaiTools) {
+const idCache = new Map();
+const SESSION_ID_DURATION = 60 * 60 * 1000; // 1 hour
+const PROJECT_ID_DURATION = 12 * 60 * 60 * 1000; // 12 hours
+
+function getCachedIds(apiKey) {
+  const now = Date.now();
+  let cache = idCache.get(apiKey);
+
+  if (!cache) {
+    cache = {
+      projectId: generateProjectId(),
+      projectExpiry: now + PROJECT_ID_DURATION,
+      sessionId: generateSessionId(),
+      sessionExpiry: now + SESSION_ID_DURATION
+    };
+    idCache.set(apiKey, cache);
+    return cache;
+  }
+
+  if (now > cache.projectExpiry) {
+    cache.projectId = generateProjectId();
+    cache.projectExpiry = now + PROJECT_ID_DURATION;
+  }
+
+  if (now > cache.sessionExpiry) {
+    cache.sessionId = generateSessionId();
+    cache.sessionExpiry = now + SESSION_ID_DURATION;
+  }
+
+  return cache;
+}
+
+function generateRequestBody(openaiMessages, modelName, parameters, openaiTools, apiKey) {
   const enableThinking = modelName.endsWith('-thinking') ||
     modelName === 'gemini-2.5-pro' ||
     modelName === 'gemini-2.5-pro-image' ||
@@ -210,8 +242,12 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools)
     modelName === "gpt-oss-120b-medium"
   const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
 
+  // Use a default key if none provided (though it should be provided by the server)
+  const cacheKey = apiKey || 'default';
+  const { projectId, sessionId } = getCachedIds(cacheKey);
+
   return {
-    project: generateProjectId(),
+    project: projectId,
     requestId: generateRequestId(),
     request: {
       contents: openaiMessageToAntigravity(openaiMessages),
@@ -226,7 +262,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools)
         }
       },
       generationConfig: generateGenerationConfig(parameters, enableThinking, actualModelName),
-      sessionId: generateSessionId()
+      sessionId: sessionId
     },
     model: actualModelName,
     userAgent: "antigravity"
