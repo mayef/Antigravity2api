@@ -52,9 +52,10 @@ export default function Keys() {
             const body = {
                 name: keyName,
                 key: customKey || undefined,
-                rate_limit: enableRateLimit ? {
-                    requests: parseInt(maxRequests),
-                    window: parseInt(windowSeconds)
+                rateLimit: enableRateLimit ? {
+                    enabled: true,
+                    maxRequests: parseInt(maxRequests),
+                    windowMs: parseInt(windowSeconds) * 1000
                 } : undefined
             };
 
@@ -322,10 +323,10 @@ export default function Keys() {
                                                 <div className="flex-1 min-w-0 space-y-4">
                                                     <div className="flex items-center gap-3">
                                                         <h3 className="font-semibold text-zinc-900 text-base">{k.name || '未命名密钥'}</h3>
-                                                        {k.rate_limit ? (
+                                                        {k.rateLimit && k.rateLimit.enabled ? (
                                                             <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
                                                                 <Shield className="w-3.5 h-3.5" />
-                                                                {k.rate_limit.requests}/{k.rate_limit.window}s
+                                                                {k.rateLimit.maxRequests}/{k.rateLimit.windowMs / 1000}s
                                                             </span>
                                                         ) : (
                                                             <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">
