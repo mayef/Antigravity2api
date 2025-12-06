@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/server/index.js",
   "scripts": {
-    "start": "node src/server/index.js",
+    "start": "node --expose-gc src/server/index.js",
     "login": "node scripts/oauth-server.js",
     "dev": "node --watch src/server/index.js",
     "build": "npm install --prefix client && npm run build --prefix client"
@@ -22,6 +22,8 @@
     "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "express": "^5.1.0",
+    "gpt-tokenizer": "^3.4.0",
+    "helmet": "^8.0.0",
     "multer": "^2.0.2"
   },
   "engines": {

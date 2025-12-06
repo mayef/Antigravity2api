@@ -36,6 +36,7 @@
 
 ### 核心功能
 - **OpenAI 兼容**: 完全兼容 OpenAI Chat Completions API 格式，无缝对接现有生态。
+- **Anthropic 兼容**: 新增支持 Anthropic Messages API 格式，可作为 Claude 替代方案使用。
 - **流式响应**: 支持 SSE (Server-Sent Events) 流式输出，体验流畅。
 - **多模态支持**: 支持文本及 Base64 编码的图片输入 (GPT-4 Vision 兼容)。
 - **工具调用**: 支持 Function Calling，扩展模型能力。
@@ -142,7 +143,7 @@ npm run dev
 ### 1. 获取模型列表
 `GET /v1/models`
 
-### 2. 聊天补全
+### 2. 聊天补全 (OpenAI 格式)
 `POST /v1/chat/completions`
 
 **请求示例:**
@@ -153,6 +154,24 @@ curl http://localhost:8045/v1/chat/completions \
   -d '{
     "model": "gemini-2.0-flash-exp",
     "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+### 3. 聊天补全 (Anthropic 格式)
+`POST /anthropic/v1/messages`
+
+支持标准的 Anthropic 请求格式，包括 `x-api-key` 头认证。
+
+**请求示例:**
+```bash
+curl http://localhost:8045/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-admin" \
+  -d '{
+    "model": "gemini-2.0-flash-exp",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 1024,
     "stream": true
   }'
 ```

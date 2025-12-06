@@ -1,17 +1,109 @@
 import express from 'express';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import crypto from 'crypto';
+import { encodeChat, countTokens } from 'gpt-tokenizer';
 import { generateAssistantResponse, getAvailableModels } from '../api/client.js';
-import { generateRequestBody } from '../utils/utils.js';
+import { generateRequestBody, generateAnthropicRequestBody } from '../utils/utils.js';
+import registerAnthropicRoutes from './routes/anthropic.js';
+import registerOpenAIRoutes from './routes/openai.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 import adminRoutes, { incrementRequestCount, addLog } from '../admin/routes.js';
 import { validateKey, checkRateLimit } from '../admin/key_manager.js';
 import idleManager from '../utils/idle_manager.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const DISALLOWED_SPECIAL_TOKENS = ['<|endoftext|>', '<|endofprompt|>', '<|fim_prefix|>', '<|fim_middle|>', '<|fim_suffix|>'];
+
+const stripDisallowedSpecialTokens = (text = '') => {
+  if (!text || typeof text !== 'string') return '';
+  return DISALLOWED_SPECIAL_TOKENS.reduce((acc, token) => acc.replaceAll(token, ''), text);
+};
+
+const stringifyContent = (content) => {
+  let result = '';
+  if (content === null || content === undefined) {
+    result = '';
+  } else if (typeof content === 'string') {
+    result = content;
+  } else if (Array.isArray(content)) {
+    result = content
+      .map(part => {
+        if (typeof part === 'string') return part;
+        if (typeof part === 'number' || typeof part === 'boolean') return String(part);
+        if (part?.text) return part.text;
+        if (part?.content) return stringifyContent(part.content);
+        if (part?.image_url) return '[image]';
+        return '';
+      })
+      .join('');
+  } else if (typeof content === 'object') {
+    try {
+      result = JSON.stringify(content);
+    } catch {
+      result = '';
+    }
+  } else {
+    result = String(content);
+  }
+
+  return stripDisallowedSpecialTokens(result);
+};
+
+const normalizeMessagesForEncoding = (msgs = []) => {
+  if (!Array.isArray(msgs)) return [];
+  return msgs
+    .filter(m => m && typeof m === 'object')
+    .map(m => ({
+      role: m.role || 'user',
+      content: stringifyContent(m.content)
+    }));
+};
+
+const safeJsonParse = (value, fallback = {}, options = {}) => {
+  const { strict = false, field } = options;
+  try {
+    if (typeof value === 'string') return JSON.parse(value);
+    if (value === null || value === undefined) return fallback;
+    return value;
+  } catch (error) {
+    const message = `${field ? `${field} ` : ''}JSON 解析失败: ${error.message}`;
+    if (strict) {
+      const err = new Error(message);
+      err.code = 'INVALID_JSON';
+      throw err;
+    }
+    logger.warn(message);
+    return fallback;
+  }
+};
+
+// 统一使用 gpt-4o 进行 Token 统计，避免模型差异带来的异常
+const countTokensSafe = (messages = []) => {
+  const calc = (msgs) => {
+    const normalized = normalizeMessagesForEncoding(msgs);
+    const tokens = encodeChat(normalized, 'gpt-4o');
+    return Array.isArray(tokens) ? tokens.length : 0;
+  };
+
+  try {
+    return { tokens: calc(messages), model: 'gpt-4o', fallback: false };
+  } catch (error) {
+    logger.warn(`Token 统计失败(gpt-4o): ${error.message}`);
+    return { tokens: 0, model: 'gpt-4o', fallback: true };
+  }
+};
+
+const countJsonTokensSafe = (value) => {
+  try {
+    const payload = typeof value === 'string' ? value : JSON.stringify(value);
+    return countTokens(payload);
+  } catch (error) {
+    logger.warn(`JSON Token 统计失败: ${error.message}`);
+    return 0;
+  }
+};
 
 // 确保必要的目录存在
 const ensureDirectories = () => {
@@ -29,9 +121,41 @@ ensureDirectories();
 
 const app = express();
 
+// 时间无关的字符串比较，防止时序攻击
+const timingSafeEqual = (a, b) => {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    // 长度不同时仍进行比较以避免时间侧信道
+    const bufPadded = Buffer.alloc(bufA.length);
+    bufB.copy(bufPadded);
+    crypto.timingSafeEqual(bufA, bufPadded);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+};
+
+// HTTP 安全头（启用精简 CSP，限制外联）
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "default-src": ["'self'"],
+      "img-src": ["'self'", "data:"],
+      "style-src": ["'self'", "'unsafe-inline'"],
+      "script-src": ["'self'"],
+      "connect-src": ["'self'", "https:"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
 app.use(express.json({ limit: config.security.maxRequestSize }));
 
-// 静态文件服务 - 提供管理控制台页面
+// 静态资源
 app.use(express.static(path.join(process.cwd(), 'client/dist')));
 
 app.use((err, req, res, next) => {
@@ -48,7 +172,7 @@ app.use((err, req, res, next) => {
 // 请求日志中间件
 app.use((req, res, next) => {
   // 记录请求活动，管理空闲状态
-  if (req.path.startsWith('/v1/')) {
+  if (req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/')) {
     idleManager.recordActivity();
   }
 
@@ -58,7 +182,7 @@ app.use((req, res, next) => {
     logger.request(req.method, req.path, res.statusCode, duration);
 
     // 记录到管理日志
-    if (req.path.startsWith('/v1/')) {
+    if (req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/')) {
       incrementRequestCount();
       addLog('info', `${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
     }
@@ -68,14 +192,26 @@ app.use((req, res, next) => {
 
 // API 密钥验证和频率限制中间件
 app.use(async (req, res, next) => {
-  if (req.path.startsWith('/v1/')) {
+  const needsAuth = req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/');
+  if (needsAuth) {
     const apiKey = config.security?.apiKey;
+    if (!apiKey) {
+      // 安全警告：未配置 API Key，拒绝所有请求
+      logger.warn('安全警告: 未配置 API Key，API 请求已被拒绝');
+      return res.status(401).json({ error: 'API Key not configured. Please set security.apiKey in config.json' });
+    }
     if (apiKey) {
+      const apiKeyHeader = req.headers['x-api-key'];
+    //   logger.info(`apiKeyHeader: ${apiKeyHeader}`);
       const authHeader = req.headers.authorization;
-      const providedKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-
+    //   logger.info(`authHeader: ${authHeader}`);
+      const providedKey = apiKeyHeader
+        || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+      //  log debug infos
+    //   logger.info(`API Key: ${apiKey}`);
+    //   logger.info(`Provided Key: ${providedKey}`);
       // 先检查配置文件中的密钥（不受频率限制）
-      if (providedKey === apiKey) {
+      if (timingSafeEqual(providedKey, apiKey)) {
         return next();
       }
 
@@ -119,142 +255,27 @@ app.use(async (req, res, next) => {
 // 管理路由
 app.use('/admin', adminRoutes);
 
-app.get('/v1/models', async (req, res) => {
-  try {
-    const models = await getAvailableModels();
-    res.json(models);
-  } catch (error) {
-    logger.error('获取模型列表失败:', error.message);
-    res.status(500).json({ error: error.message });
-  }
+// 路由注册（拆分文件，便于维护）
+registerAnthropicRoutes(app, {
+  generateAssistantResponse,
+  generateAnthropicRequestBody,
+  countTokensSafe,
+  countJsonTokensSafe,
+  safeJsonParse,
+  logger
 });
 
-app.post('/v1/chat/completions', async (req, res) => {
-  let { messages, model, stream = true, tools, ...params } = req.body;
-  try {
-
-    if (!messages) {
-      return res.status(400).json({ error: 'messages is required' });
-    }
-
-    // 智能检测：NewAPI测速请求通常消息很简单，强制使用非流式响应
-    // 检测条件：单条消息 + 内容很短（如 "hi", "test" 等）
-    const isSingleShortMessage = messages.length === 1 &&
-      messages[0].content &&
-      messages[0].content.length < 20;
-
-    // 如果检测到可能是测速请求，且未明确要求流式，则使用非流式
-    if (isSingleShortMessage && req.body.stream === undefined) {
-      stream = false;
-    }
-
-    const authHeader = req.headers.authorization;
-    const apiKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-
-    const requestBody = generateRequestBody(messages, model, params, tools, apiKey);
-
-
-    if (stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
-      const id = `chatcmpl-${Date.now()}`;
-      const created = Math.floor(Date.now() / 1000);
-      let hasToolCall = false;
-
-      await generateAssistantResponse(requestBody, (data) => {
-        if (data.type === 'tool_calls') {
-          hasToolCall = true;
-          res.write(`data: ${JSON.stringify({
-            id,
-            object: 'chat.completion.chunk',
-            created,
-            model,
-            choices: [{ index: 0, delta: { tool_calls: data.tool_calls }, finish_reason: null }]
-          })}\n\n`);
-        } else {
-          res.write(`data: ${JSON.stringify({
-            id,
-            object: 'chat.completion.chunk',
-            created,
-            model,
-            choices: [{ index: 0, delta: { content: data.content }, finish_reason: null }]
-          })}\n\n`);
-        }
-      });
-
-      res.write(`data: ${JSON.stringify({
-        id,
-        object: 'chat.completion.chunk',
-        created,
-        model,
-        choices: [{ index: 0, delta: {}, finish_reason: hasToolCall ? 'tool_calls' : 'stop' }]
-      })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      res.end();
-    } else {
-      let fullContent = '';
-      let toolCalls = [];
-      await generateAssistantResponse(requestBody, (data) => {
-        if (data.type === 'tool_calls') {
-          toolCalls = data.tool_calls;
-        } else {
-          fullContent += data.content;
-        }
-      });
-
-      const message = { role: 'assistant', content: fullContent };
-      if (toolCalls.length > 0) {
-        message.tool_calls = toolCalls;
-      }
-
-      res.json({
-        id: `chatcmpl-${Date.now()}`,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: [{
-          index: 0,
-          message,
-          finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop'
-        }]
-      });
-    }
-  } catch (error) {
-    logger.error('生成响应失败:', error.message);
-    if (!res.headersSent) {
-      if (stream) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const id = `chatcmpl-${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
-        res.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [{ index: 0, delta: { content: `错误: ${error.message}` }, finish_reason: null }]
-        })}\n\n`);
-        res.write(`data: ${JSON.stringify({
-          id,
-          object: 'chat.completion.chunk',
-          created,
-          model,
-          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
-        })}\n\n`);
-        res.write('data: [DONE]\n\n');
-        res.end();
-      } else {
-        res.status(500).json({ error: error.message });
-      }
-    }
-  }
+registerOpenAIRoutes(app, {
+  generateAssistantResponse,
+  generateRequestBody,
+  countTokensSafe,
+  countJsonTokensSafe,
+  safeJsonParse,
+  logger,
+  getAvailableModels
 });
 
 // 所有其他请求返回 index.html (SPA 支持)
-// Express 5 requires (.*) instead of * for wildcard
 app.get(/(.*)/, (req, res) => {
   res.sendFile(path.join(process.cwd(), 'client/dist', 'index.html'));
 });

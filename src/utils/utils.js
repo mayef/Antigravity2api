@@ -198,20 +198,59 @@ function generateGenerationConfig(parameters, enableThinking, actualModelName) {
   }
   return generationConfig
 }
+const MAX_TOOLS = 32;
+const MAX_TOOL_SCHEMA_SIZE = 50 * 1024; // 50KB 防止巨型 JSON
+
+function sanitizeTool(tool) {
+  if (!tool || tool.type !== 'function' || !tool.function) return null;
+  const { name, description, parameters } = tool.function;
+  if (typeof name !== 'string' || !name.trim()) return null;
+  const safeDesc = typeof description === 'string' ? description : '';
+  const safeParams = parameters && typeof parameters === 'object' ? { ...parameters } : {};
+  // 删除可能被滥用的字段
+  delete safeParams.$schema;
+  delete safeParams.__proto__;
+  delete safeParams.prototype;
+
+  const schemaSize = Buffer.byteLength(JSON.stringify(safeParams || {}), 'utf8');
+  if (schemaSize > MAX_TOOL_SCHEMA_SIZE) {
+    throw new Error('工具参数过大，已拒绝');
+  }
+
+  return {
+    functionDeclarations: [
+      {
+        name,
+        description: safeDesc,
+        parameters: safeParams
+      }
+    ]
+  };
+}
+
 function convertOpenAIToolsToAntigravity(openaiTools) {
   if (!openaiTools || openaiTools.length === 0) return [];
-  return openaiTools.map((tool) => {
-    delete tool.function.parameters.$schema;
-    return {
-      functionDeclarations: [
-        {
-          name: tool.function.name,
-          description: tool.function.description,
-          parameters: tool.function.parameters
+  if (!Array.isArray(openaiTools)) {
+    throw new Error('tools 必须是数组');
+  }
+  if (openaiTools.length > MAX_TOOLS) {
+    throw new Error(`工具数量过多，最多支持 ${MAX_TOOLS} 个`);
+  }
+  const sanitized = openaiTools.map(sanitizeTool).filter(Boolean);
+  return sanitized;
+}
+function convertAnthropicToolsToAntigravity(tools = []) {
+  const openaiLikeTools = Array.isArray(tools)
+    ? tools.map(tool => ({
+        type: 'function',
+        function: {
+          name: tool?.name,
+          description: tool?.description,
+          parameters: tool?.input_schema
         }
-      ]
-    }
-  })
+      }))
+    : [];
+  return convertOpenAIToolsToAntigravity(openaiLikeTools);
 }
 const idCache = new Map();
 const SESSION_ID_DURATION = 60 * 60 * 1000; // 1 hour
@@ -280,9 +319,181 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
     userAgent: "antigravity"
   }
 }
+function extractAnthropicContent(content) {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(item => {
+        if (typeof item === 'string') return item;
+        if (item?.text) return item.text;
+        return '';
+      })
+      .join('');
+  }
+  if (typeof content === 'object') {
+    if (content.text) return content.text;
+    try {
+      return JSON.stringify(content);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+function anthropicBlockToInlineData(block) {
+  const source = block?.source || {};
+  const data = source.data || source.data64 || source.base64 || source.value;
+  if (!data) return null;
+  const mimeType = source.media_type || source.mime_type || 'image/png';
+  return {
+    inlineData: {
+      mimeType,
+      data
+    }
+  };
+}
+function anthropicBlockToFunctionResponse(block) {
+  const id = block?.tool_use_id || block?.id;
+  const name = block?.name || '';
+  const output = extractAnthropicContent(block?.content);
+  if (!id) return null;
+  return {
+    functionResponse: {
+      id,
+      name,
+      response: {
+        output
+      }
+    }
+  };
+}
+function anthropicMessagesToAntigravity(messages = [], system) {
+  const antigravityMessages = [];
+
+  const pushUserSystem = (text) => {
+    if (!text) return;
+    antigravityMessages.push({
+      role: 'user',
+      parts: [{ text }]
+    });
+  };
+
+  if (system) {
+    pushUserSystem(extractAnthropicContent(system));
+  }
+
+  for (const message of messages) {
+    const role = message?.role;
+    const contentBlocks = Array.isArray(message?.content)
+      ? message.content
+      : message?.content
+        ? [{ type: 'text', text: message.content }]
+        : [];
+
+    if (role === 'assistant') {
+      const parts = [];
+      for (const block of contentBlocks) {
+        if (block?.type === 'text') {
+          parts.push({ text: block.text || '' });
+        } else if (block?.type === 'tool_use') {
+          parts.push({
+            functionCall: {
+              id: block.id || `tool_${Date.now()}`,
+              name: block.name,
+              args: {
+                query: block.input ?? {}
+              }
+            }
+          });
+        } else if (block?.type === 'image') {
+          const inline = anthropicBlockToInlineData(block);
+          if (inline) parts.push(inline);
+        }
+      }
+      if (parts.length) {
+        antigravityMessages.push({
+          role: 'model',
+          parts
+        });
+      }
+      continue;
+    }
+
+    if (role === 'user') {
+      const parts = [];
+      for (const block of contentBlocks) {
+        if (block?.type === 'text') {
+          parts.push({ text: block.text || '' });
+        } else if (block?.type === 'image') {
+          const inline = anthropicBlockToInlineData(block);
+          if (inline) parts.push(inline);
+        } else if (block?.type === 'tool_result') {
+          const fnResp = anthropicBlockToFunctionResponse(block);
+          if (fnResp) parts.push(fnResp);
+        }
+      }
+      if (parts.length) {
+        antigravityMessages.push({
+          role: 'user',
+          parts
+        });
+      }
+      continue;
+    }
+
+    if (role === 'system') {
+      pushUserSystem(extractAnthropicContent(contentBlocks));
+    }
+  }
+
+  return antigravityMessages;
+}
+function generateAnthropicRequestBody(messages, system, modelName, parameters, anthropicTools, apiKey) {
+  const enableThinking = modelName.endsWith('-thinking') ||
+    modelName === 'gemini-2.5-pro' ||
+    modelName === 'gemini-2.5-pro-image' ||
+    modelName.startsWith('gemini-3-pro-') ||
+    modelName === "rev19-uic3-1p" ||
+    modelName === "gpt-oss-120b-medium";
+  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+
+  const cacheKey = apiKey || 'default';
+  const { projectId, sessionId } = getCachedIds(cacheKey);
+  const contents = anthropicMessagesToAntigravity(messages, system);
+  const tools = convertAnthropicToolsToAntigravity(anthropicTools);
+  const systemText = extractAnthropicContent(system);
+
+  return {
+    project: projectId,
+    requestId: generateRequestId(),
+    request: {
+      contents,
+      systemInstruction: {
+        role: "user",
+        parts: [{
+          text: systemText
+            ? `${config.systemInstruction}\n${systemText}`
+            : config.systemInstruction
+        }]
+      },
+      tools,
+      toolConfig: {
+        functionCallingConfig: {
+          mode: "VALIDATED"
+        }
+      },
+      generationConfig: generateGenerationConfig(parameters, enableThinking, actualModelName),
+      sessionId: sessionId
+    },
+    model: actualModelName,
+    userAgent: "antigravity"
+  };
+}
 export {
   generateRequestId,
   generateSessionId,
   generateProjectId,
-  generateRequestBody
+  generateRequestBody,
+  generateAnthropicRequestBody
 }

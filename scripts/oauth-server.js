@@ -6,13 +6,15 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import log from '../src/utils/logger.js';
+import config from '../src/config/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ACCOUNTS_FILE = path.join(__dirname, '..', 'data', 'accounts.json');
 
-const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
-const CLIENT_SECRET = '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';
+// OAuth 凭证从配置文件读取
+const getClientId = () => config.oauth?.clientId;
+const getClientSecret = () => config.oauth?.clientSecret;
 const STATE = crypto.randomUUID();
 
 const SCOPES = [
@@ -26,7 +28,7 @@ const SCOPES = [
 function generateAuthUrl(port) {
   const params = new URLSearchParams({
     access_type: 'offline',
-    client_id: CLIENT_ID,
+    client_id: getClientId(),
     prompt: 'consent',
     redirect_uri: `http://localhost:${port}/oauth-callback`,
     response_type: 'code',
@@ -40,13 +42,14 @@ function exchangeCodeForToken(code, port) {
   return new Promise((resolve, reject) => {
     const postData = new URLSearchParams({
       code: code,
-      client_id: CLIENT_ID,
+      client_id: getClientId(),
       redirect_uri: `http://localhost:${port}/oauth-callback`,
       grant_type: 'authorization_code'
     });
     
-    if (CLIENT_SECRET) {
-      postData.append('client_secret', CLIENT_SECRET);
+    const clientSecret = getClientSecret();
+    if (clientSecret) {
+      postData.append('client_secret', clientSecret);
     }
     
     const data = postData.toString();

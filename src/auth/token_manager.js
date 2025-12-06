@@ -2,12 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
+import config from '../config/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
-const CLIENT_SECRET = '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';
+// OAuth 凭证从配置文件读取
+const getClientId = () => config.oauth?.clientId;
+const getClientSecret = () => config.oauth?.clientSecret;
 
 class TokenManager {
   constructor(filePath = path.join(__dirname,'..','..','data' ,'accounts.json')) {
@@ -56,8 +58,8 @@ class TokenManager {
   async refreshToken(token) {
     log.info('正在刷新token...');
     const body = new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: getClientId(),
+      client_secret: getClientSecret(),
       grant_type: 'refresh_token',
       refresh_token: token.refresh_token
     });

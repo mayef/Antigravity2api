@@ -61,8 +61,7 @@ export async function triggerLogin() {
 
     const loginScript = path.join(process.cwd(), 'scripts', 'oauth-server.js');
     const child = spawn('node', [loginScript], {
-      stdio: 'pipe',
-      shell: true
+      stdio: 'pipe'
     });
 
     let authUrl = '';
@@ -119,9 +118,11 @@ export async function getAccountStats() {
 
 // 从回调链接手动添加 Token
 import https from 'https';
+import config from '../config/config.js';
 
-const CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
-const CLIENT_SECRET = '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';
+// OAuth 凭证从配置文件读取
+const getClientId = () => config.oauth?.clientId;
+const getClientSecret = () => config.oauth?.clientSecret;
 
 // 获取 Google 账号信息
 export async function getAccountName(accessToken) {
@@ -159,6 +160,14 @@ export async function getAccountName(accessToken) {
 export async function addTokenFromCallback(callbackUrl) {
   // 解析回调链接
   const url = new URL(callbackUrl);
+  
+  // SSRF 防护：只允许 localhost 回调（白名单模式）
+  const hostname = url.hostname.toLowerCase();
+  const allowedHosts = ['localhost', '127.0.0.1', '[::1]', '::1'];
+  if (!allowedHosts.includes(hostname)) {
+    throw new Error('回调链接必须是 localhost 地址');
+  }
+  
   const code = url.searchParams.get('code');
   const port = url.port || '80';
 
@@ -194,8 +203,8 @@ function exchangeCodeForToken(code, port, origin) {
 
     const postData = new URLSearchParams({
       code: code,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: getClientId(),
+      client_secret: getClientSecret(),
       redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     }).toString();
@@ -229,75 +238,107 @@ function exchangeCodeForToken(code, port, origin) {
   });
 }
 
+const MAX_IMPORT_ITEMS = 500;
+const MAX_TOKENS_JSON_SIZE = 5 * 1024 * 1024; // 5MB 防止巨型文件
+
+function validateImportedToken(token) {
+  if (!token || typeof token !== 'object') return false;
+  const hasAccess = typeof token.access_token === 'string' && token.access_token.length > 0;
+  const hasRefresh = typeof token.refresh_token === 'string' && token.refresh_token.length > 0;
+  if (!hasAccess || !hasRefresh) return false;
+  if (token.expires_in && typeof token.expires_in !== 'number') return false;
+  return true;
+}
+
 // 批量导入 Token
 export async function importTokens(filePath) {
   try {
     logger.info('开始导入 Token...');
 
-    // 检查是否是 ZIP 文件
-    if (filePath.endsWith('.zip') || true) {
-      const zip = new AdmZip(filePath);
-      const zipEntries = zip.getEntries();
-
-      // 查找 tokens.json
-      const tokensEntry = zipEntries.find(entry => entry.entryName === 'tokens.json');
-      if (!tokensEntry) {
-        throw new Error('ZIP 文件中没有找到 tokens.json');
+    // 文件大小上限检查
+    try {
+      const stat = await fs.stat(filePath);
+      if (stat.size > MAX_TOKENS_JSON_SIZE * 2) {
+        throw new Error('上传文件过大');
       }
-
-      const tokensContent = tokensEntry.getData().toString('utf8');
-      const importedTokens = JSON.parse(tokensContent);
-
-      // 验证数据格式
-      if (!Array.isArray(importedTokens)) {
-        throw new Error('tokens.json 格式错误：应该是一个数组');
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        throw err;
       }
-
-      // 加载现有账号
-      const accounts = await loadAccounts();
-
-      // 添加新账号
-      let addedCount = 0;
-      for (const token of importedTokens) {
-        // 检查是否已存在
-        const exists = accounts.some(acc => acc.access_token === token.access_token);
-        if (!exists) {
-          accounts.push({
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
-            expires_in: token.expires_in,
-            timestamp: token.timestamp || Date.now(),
-            enable: token.enable !== false
-          });
-          addedCount++;
-        }
-      }
-
-      // 保存账号
-      await saveAccounts(accounts);
-
-      // 清理上传的文件
-      try {
-        await fs.unlink(filePath);
-      } catch (e) {
-        logger.warn('清理上传文件失败:', e);
-      }
-
-      logger.info(`成功导入 ${addedCount} 个 Token 账号`);
-      return {
-        success: true,
-        count: addedCount,
-        total: importedTokens.length,
-        skipped: importedTokens.length - addedCount,
-        message: `成功导入 ${addedCount} 个 Token 账号${importedTokens.length - addedCount > 0 ? `，跳过 ${importedTokens.length - addedCount} 个重复账号` : ''}`
-      };
     }
+
+    // 尝试作为 ZIP 文件读取（multer 保存的临时文件可能没有扩展名）
+    let zip;
+    try {
+      zip = new AdmZip(filePath);
+    } catch (zipError) {
+      throw new Error('无法解析上传文件，请确保上传的是有效的 ZIP 文件');
+    }
+    const zipEntries = zip.getEntries();
+
+    // 查找 tokens.json（使用 basename 防止路径遍历）
+    const tokensEntry = zipEntries.find(entry => path.basename(entry.entryName) === 'tokens.json');
+    if (!tokensEntry) {
+      throw new Error('ZIP 文件中没有找到 tokens.json');
+    }
+
+    const tokensBuffer = tokensEntry.getData();
+    if (tokensBuffer.length > MAX_TOKENS_JSON_SIZE) {
+      throw new Error('tokens.json 体积过大');
+    }
+
+    const tokensContent = tokensBuffer.toString('utf8');
+    const importedTokens = JSON.parse(tokensContent);
+
+    // 验证数据格式
+    if (!Array.isArray(importedTokens)) {
+      throw new Error('tokens.json 格式错误：应该是一个数组');
+    }
+    if (importedTokens.length > MAX_IMPORT_ITEMS) {
+      throw new Error(`一次最多导入 ${MAX_IMPORT_ITEMS} 个账号`);
+    }
+
+    // 加载现有账号
+    const accounts = await loadAccounts();
+
+    // 添加新账号
+    let addedCount = 0;
+    for (const token of importedTokens) {
+      if (!validateImportedToken(token)) {
+        throw new Error('tokens.json 含无效字段或缺少必要字段');
+      }
+      // 检查是否已存在
+      const exists = accounts.some(acc => acc.access_token === token.access_token);
+      if (!exists) {
+        accounts.push({
+          access_token: token.access_token,
+          refresh_token: token.refresh_token,
+          expires_in: token.expires_in,
+          timestamp: token.timestamp || Date.now(),
+          enable: token.enable !== false
+        });
+        addedCount++;
+      }
+    }
+
+    // 保存账号
+    await saveAccounts(accounts);
+
+    logger.info(`成功导入 ${addedCount} 个 Token 账号`);
+    return {
+      success: true,
+      count: addedCount,
+      total: importedTokens.length,
+      skipped: importedTokens.length - addedCount,
+      message: `成功导入 ${addedCount} 个 Token 账号${importedTokens.length - addedCount > 0 ? `，跳过 ${importedTokens.length - addedCount} 个重复账号` : ''}`
+    };
   } catch (error) {
     logger.error('导入 Token 失败:', error);
+    throw error;
+  } finally {
     // 清理上传的文件
     try {
       await fs.unlink(filePath);
     } catch (e) {}
-    throw error;
   }
 }

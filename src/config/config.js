@@ -9,6 +9,11 @@ const defaultConfig = {
     host: 'daily-cloudcode-pa.sandbox.googleapis.com',
     userAgent: 'antigravity/1.11.3 windows/amd64'
   },
+  oauth: {
+    // 默认不再内置凭证，改为从环境变量或 config.json 提供
+    clientId: process.env.OAUTH_CLIENT_ID || null,
+    clientSecret: process.env.OAUTH_CLIENT_SECRET || null
+  },
   defaults: { temperature: 1, top_p: 0.85, top_k: 50, max_tokens: 8096 },
   security: { maxRequestSize: '50mb', apiKey: null },
   systemInstruction: '你是聊天机器人，专门为用户提供聊天和情绪价值，协助进行小说创作或者角色扮演，也可以提供数学或者代码上的建议'
@@ -29,6 +34,7 @@ export function reloadConfig() {
     if (newConfig.api) Object.assign(config.api, newConfig.api);
     if (newConfig.defaults) Object.assign(config.defaults, newConfig.defaults);
     if (newConfig.security) Object.assign(config.security, newConfig.security);
+    if (newConfig.oauth) Object.assign(config.oauth, newConfig.oauth);
 
     log.info('✓ 配置文件已重载');
     return true;

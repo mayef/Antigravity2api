@@ -5,29 +5,60 @@ import { createKey, loadKeys, deleteKey, updateKeyRateLimit, getKeyStats } from 
 import { getRecentLogs, clearLogs, addLog } from './log_manager.js';
 import { getSystemStatus, incrementRequestCount, getTodayRequestCount } from './monitor.js';
 import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens } from './token_admin.js';
-import { createSession, validateSession, destroySession, verifyPassword, adminAuth } from './session.js';
+import { createSession, validateSession, destroySession, verifyPassword, adminAuth, checkLoginLimit, recordLoginAttempt } from './session.js';
 import { loadSettings, saveSettings } from './settings_manager.js';
 import tokenManager from '../auth/token_manager.js';
 
-// 配置文件上传
-const upload = multer({ dest: 'uploads/' });
+// 配置文件上传（限制文件大小和类型）
+const upload = multer({
+  dest: 'uploads/',
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 最大 10MB
+    files: 1 // 单次只允许上传一个文件
+  },
+  fileFilter: (req, file, cb) => {
+    // 只允许 ZIP 文件
+    if (file.mimetype === 'application/zip' || 
+        file.mimetype === 'application/x-zip-compressed' ||
+        file.originalname.endsWith('.zip')) {
+      cb(null, true);
+    } else {
+      cb(new Error('只允许上传 ZIP 文件'), false);
+    }
+  }
+});
 
 const router = express.Router();
 
 // 登录接口（不需要认证）
 router.post('/login', async (req, res) => {
   try {
+    // 获取客户端 IP
+    const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    
+    // 检查登录尝试限制
+    const limitCheck = checkLoginLimit(ip);
+    if (!limitCheck.allowed) {
+      await addLog('warn', `登录尝试过多: ${ip}`);
+      return res.status(429).json({ 
+        error: `登录尝试次数过多，请 ${Math.ceil(limitCheck.waitSeconds / 60)} 分钟后重试` 
+      });
+    }
+    
     const { password } = req.body;
     if (!password) {
       return res.status(400).json({ error: '请输入密码' });
     }
+
+    // 记录登录尝试
+    recordLoginAttempt(ip);
 
     if (verifyPassword(password)) {
       const token = createSession();
       await addLog('info', '管理员登录成功');
       res.json({ success: true, token });
     } else {
-      await addLog('warn', '管理员登录失败：密码错误');
+      await addLog('warn', `管理员登录失败：密码错误 (IP: ${ip})`);
       res.status(401).json({ error: '密码错误' });
     }
   } catch (error) {
@@ -79,7 +110,7 @@ router.get('/keys', async (req, res) => {
       ...k,
       key: k.key.substring(0, 10) + '...' + k.key.substring(k.key.length - 4)
     }));
-    res.json(keys); // 在管理界面显示完整密钥
+    res.json(safeKeys); // 隐藏部分密钥字符
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -290,8 +321,8 @@ router.post('/tokens/details', async (req, res) => {
           index,
           email: accountInfo.email,
           name: accountInfo.name,
-          access_token: account.access_token,
-          refresh_token: account.refresh_token,
+          access_token: account.access_token?.substring(0, 20) + '...',
+          refresh_token: account.refresh_token ? '[已隐藏]' : 'none',
           expires_in: account.expires_in,
           timestamp: account.timestamp,
           enable: account.enable !== false
@@ -351,7 +382,22 @@ router.post('/tokens/export', async (req, res) => {
 });
 
 // 批量导入 Token (ZIP格式)
-router.post('/tokens/import', upload.single('file'), async (req, res) => {
+router.post('/tokens/import', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      // Multer 错误处理
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: '文件大小超过限制（最大 10MB）' });
+        }
+        return res.status(400).json({ error: `文件上传错误: ${err.message}` });
+      }
+      // 自定义验证错误（fileFilter）
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '请上传文件' });
