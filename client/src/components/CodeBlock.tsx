@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { cn } from '../lib/utils';
 
-export default function CodeBlock({ code, language = 'bash' }) {
+interface CodeBlockProps {
+    code: string;
+    language?: string;
+}
+
+export default function CodeBlock({ code, language = 'text' }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
 
     const copy = () => {
@@ -22,7 +26,7 @@ export default function CodeBlock({ code, language = 'bash' }) {
                 </button>
             </div>
             <pre className="p-4 overflow-x-auto text-sm font-mono text-slate-300 leading-relaxed">
-                <code>{code}</code>
+                <code className={`language-${language}`}>{code}</code>
             </pre>
         </div>
     );

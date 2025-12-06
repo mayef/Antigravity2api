@@ -107,7 +107,7 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
 
   const router = express.Router();
 
-  router.post('/messages', async (req: Request, res: Response) => {
+  router.post('/messages', async (req: Request, res: Response): Promise<any> => {
     const { messages, model, system, stream = true, tools = [], ...params } = req.body || {};
 
     if (!messages || !Array.isArray(messages) || !model) {
@@ -135,7 +135,6 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
         res.setHeader('Connection', 'keep-alive');
 
         const id = `msg_${Date.now()}`;
-        const created = Math.floor(Date.now() / 1000);
         let contentStarted = false;
         let accumulated = '';
         let toolCalls: any[] = [];

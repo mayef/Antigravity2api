@@ -5,12 +5,25 @@ import { reloadConfig } from '../config/config.js';
 
 const CONFIG_FILE = path.join(process.cwd(), 'config.json');
 
+interface AppConfig {
+  server?: { port: number; host: string };
+  api?: {
+    url: string;
+    modelsUrl: string;
+    host: string;
+    userAgent: string;
+  };
+  defaults?: { temperature: number; top_p: number; top_k: number; max_tokens: number };
+  security?: { maxRequestSize: string; apiKey: string | null; adminPassword: string | null };
+  systemInstruction?: string;
+}
+
 // 加载设置
-export async function loadSettings() {
+export async function loadSettings(): Promise<AppConfig> {
   try {
     const data = await fs.readFile(CONFIG_FILE, 'utf-8');
     return JSON.parse(data);
-  } catch (error) {
+  } catch (error: any) {
     logger.error('读取配置文件失败:', error);
     // 返回默认配置
     return {
@@ -29,10 +42,10 @@ export async function loadSettings() {
 }
 
 // 保存设置
-export async function saveSettings(newSettings) {
+export async function saveSettings(newSettings: any) {
   try {
     // 读取现有配置
-    let config;
+    let config: any;
     try {
       const data = await fs.readFile(CONFIG_FILE, 'utf-8');
       config = JSON.parse(data);
@@ -90,7 +103,7 @@ export async function saveSettings(newSettings) {
       : '设置已保存，但热重载失败，请重启服务器';
 
     return { success: true, message };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('保存配置文件失败:', error);
     throw new Error('保存配置失败: ' + error.message);
   }

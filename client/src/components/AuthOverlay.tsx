@@ -10,7 +10,7 @@ export default function AuthOverlay() {
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleLogin = async (e) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!password) return;
 
@@ -21,7 +21,7 @@ export default function AuthOverlay() {
 
         const result = await login(password);
         if (!result.success) {
-            setError(result.error);
+            setError(result.error || 'Login failed');
             setPassword('');
         }
         setIsSubmitting(false);

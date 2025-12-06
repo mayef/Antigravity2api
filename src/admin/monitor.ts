@@ -71,7 +71,8 @@ function getCpuUsage() {
   let totalTick = 0;
 
   cpus.forEach(cpu => {
-    for (let type in cpu.times) {
+    let type: keyof typeof cpu.times;
+    for (type in cpu.times) {
       totalTick += cpu.times[type];
     }
     totalIdle += cpu.times.idle;
@@ -85,7 +86,7 @@ function getCpuUsage() {
 }
 
 // 格式化字节数
-function formatBytes(bytes) {
+function formatBytes(bytes: number) {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];

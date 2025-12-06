@@ -52,6 +52,14 @@ export default function Dashboard() {
         fetchData();
     }, [token]);
 
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px]">
+                <div className="w-8 h-8 border-4 border-zinc-200 border-t-zinc-900 rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
     const container = {
         hidden: { opacity: 0 },
         show: {
@@ -162,7 +170,16 @@ export default function Dashboard() {
     );
 }
 
-function StatsCard({ title, value, icon: Icon, color, bg, subtext }) {
+interface StatsCardProps {
+    title: string;
+    value: number | string;
+    icon: React.ElementType;
+    color: string;
+    bg: string;
+    subtext: React.ReactNode;
+}
+
+function StatsCard({ title, value, icon: Icon, color, bg, subtext }: StatsCardProps) {
     return (
         <motion.div
             variants={{
@@ -183,7 +200,14 @@ function StatsCard({ title, value, icon: Icon, color, bg, subtext }) {
     );
 }
 
-function QuickStartStep({ number, title, desc, link }) {
+interface QuickStartStepProps {
+    number: string;
+    title: string;
+    desc: string;
+    link: string;
+}
+
+function QuickStartStep({ number, title, desc, link }: QuickStartStepProps) {
     return (
         <Link to={link} className="flex gap-4 p-4 rounded-xl hover:bg-zinc-50 transition-colors group cursor-pointer border border-transparent hover:border-zinc-100">
             <div className="text-3xl font-bold text-zinc-100 group-hover:text-zinc-200 transition-colors">

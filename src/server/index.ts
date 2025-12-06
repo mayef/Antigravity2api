@@ -158,7 +158,7 @@ app.use(express.json({ limit: config.security.maxRequestSize }));
 // 静态资源
 app.use(express.static(path.join(process.cwd(), 'client/dist')));
 
-const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+const errorHandler: ErrorRequestHandler = (err: any, _req: Request, res: Response, next: NextFunction): any => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: `请求体过大，最大支持 ${config.security.maxRequestSize}` });
   }
@@ -272,13 +272,12 @@ registerOpenAIRoutes(app, {
   generateRequestBody,
   countTokensSafe,
   countJsonTokensSafe,
-  safeJsonParse,
   logger,
   getAvailableModels
 });
 
 // 所有其他请求返回 index.html (SPA 支持)
-app.get(/(.*)/, (req: Request, res: Response) => {
+app.get(/(.*)/, (_req: Request, res: Response) => {
   res.sendFile(path.join(process.cwd(), 'client/dist', 'index.html'));
 });
 

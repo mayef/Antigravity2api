@@ -8,7 +8,9 @@
     "start": "node --expose-gc --import tsx src/server/index.ts",
     "dev": "node --expose-gc --import tsx --watch src/server/index.ts",
     "login": "tsx scripts/oauth-server.ts",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && pnpm --dir client exec tsc -b",
+    "lint": "pnpm --dir client run lint",
+    "check": "pnpm run type-check && pnpm run lint",
     "build": "pnpm --dir client install && pnpm --dir client run build"
   },
   "keywords": [
@@ -22,9 +24,9 @@
   "dependencies": {
     "adm-zip": "~0.5.16",
     "archiver": "~7.0.1",
-    "express": "~5.1.0",
+    "express": "~5.2.1",
     "gpt-tokenizer": "~3.4.0",
-    "helmet": "~8.0.0",
+    "helmet": "~8.1.0",
     "multer": "~2.0.2"
   },
   "engines": {

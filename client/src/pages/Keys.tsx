@@ -6,9 +6,20 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface KeyItem {
+    key: string;
+    name: string;
+    created: number;
+    rateLimit?: {
+        enabled: boolean;
+        maxRequests: number;
+        windowMs: number;
+    };
+}
+
 export default function Keys() {
     const { token: adminToken } = useAuth();
-    const [keys, setKeys] = useState([]);
+    const [keys, setKeys] = useState<KeyItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
 
@@ -16,15 +27,15 @@ export default function Keys() {
     const [keyName, setKeyName] = useState('');
     const [customKey, setCustomKey] = useState('');
     const [enableRateLimit, setEnableRateLimit] = useState(false);
-    const [maxRequests, setMaxRequests] = useState(100);
-    const [windowSeconds, setWindowSeconds] = useState(60);
+    const [maxRequests, setMaxRequests] = useState('100');
+    const [windowSeconds, setWindowSeconds] = useState('60');
 
     const [copiedKey, setCopiedKey] = useState('');
     const [message, setMessage] = useState({ type: '', content: '' });
 
     // UI State
-    const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, key: null });
-    const [visibleKeys, setVisibleKeys] = useState(new Set());
+    const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; key: string | null }>({ isOpen: false, key: null });
+    const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
 
     const fetchKeys = async () => {
         setIsLoading(true);
@@ -79,13 +90,14 @@ export default function Keys() {
                 setMessage({ type: 'error', content: data.error || '生成失败' });
             }
         } catch (error) {
-            setMessage({ type: 'error', content: '请求失败: ' + error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage({ type: 'error', content: '请求失败: ' + errorMessage });
         } finally {
             setIsGenerating(false);
         }
     };
 
-    const handleDeleteClick = (key) => {
+    const handleDeleteClick = (key: string) => {
         setDeleteConfirm({ isOpen: true, key });
     };
 
@@ -106,13 +118,13 @@ export default function Keys() {
         }
     };
 
-    const copyToClipboard = (text) => {
+    const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
         setCopiedKey(text);
         setTimeout(() => setCopiedKey(''), 2000);
     };
 
-    const toggleKeyVisibility = (key) => {
+    const toggleKeyVisibility = (key: string) => {
         setVisibleKeys(prev => {
             const newSet = new Set(prev);
             if (newSet.has(key)) {
@@ -124,7 +136,7 @@ export default function Keys() {
         });
     };
 
-    const maskKey = (key) => {
+    const maskKey = (key: string) => {
         if (visibleKeys.has(key)) return key;
         return key.substring(0, 3) + '•'.repeat(20) + key.substring(key.length - 4);
     };

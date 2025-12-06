@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Book, Globe, MessageSquare, Shield, Zap, Lightbulb, Code2 } from 'lucide-react';
+import { Globe, Shield, Zap } from 'lucide-react';
 import CodeBlock from '../components/CodeBlock';
 import { cn } from '../lib/utils';
 
@@ -105,7 +105,16 @@ data: [DONE]`}
     );
 }
 
-function EndpointCard({ method, path, title, desc, req, res }) {
+interface EndpointCardProps {
+    method: string;
+    path: string;
+    title: string;
+    desc: string;
+    req: string;
+    res: string;
+}
+
+function EndpointCard({ method, path, title, desc, req, res }: EndpointCardProps) {
     return (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
             <div className="p-6 border-b border-zinc-100">

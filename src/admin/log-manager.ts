@@ -1,13 +1,21 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { Mutex } from '../utils/mutex.js';
 
 const LOGS_FILE = path.join(process.cwd(), 'data', 'app_logs.json');
 const MAX_LOGS = 200; // 最多保存 200 条日志（降低内存使用）
+const FLUSH_INTERVAL = 42; // 42秒写入一次
+const MAX_BUFFER_SIZE = 50; // 缓冲区最大条数
 
-// 内存缓存，避免频繁读取文件
-let logsCache = null;
-let lastCacheTime = 0;
-const CACHE_DURATION = 30000; // 缓存30秒
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
+const fileMutex = new Mutex();
+let logBuffer: LogEntry[] = [];
+let flushTimer: NodeJS.Timeout | null = null;
 
 // 确保数据目录存在
 async function ensureDataDir() {
@@ -19,61 +27,102 @@ async function ensureDataDir() {
   }
 }
 
-// 加载日志（带缓存）
-export async function loadLogs() {
-  const now = Date.now();
-
-  // 如果缓存有效，直接返回缓存
-  if (logsCache && (now - lastCacheTime) < CACHE_DURATION) {
-    return logsCache;
-  }
-
-  await ensureDataDir();
+// 加载日志
+export async function loadLogs(): Promise<LogEntry[]> {
+  await fileMutex.runExclusive(async () => {
+      await ensureDataDir();
+  });
+  
   try {
     const data = await fs.readFile(LOGS_FILE, 'utf-8');
-    logsCache = JSON.parse(data);
-    lastCacheTime = now;
-    return logsCache;
-  } catch (error) {
+    return JSON.parse(data);
+  } catch (error: any) {
     if (error.code === 'ENOENT') {
-      logsCache = [];
-      lastCacheTime = now;
       return [];
     }
     throw error;
   }
 }
 
-// 保存日志
-async function saveLogs(logs) {
-  await ensureDataDir();
-  // 只保留最新的日志
-  const recentLogs = logs.slice(-MAX_LOGS);
-  await fs.writeFile(LOGS_FILE, JSON.stringify(recentLogs, null, 2), 'utf-8');
+// 将缓冲区日志写入文件
+async function flushLogs() {
+  if (logBuffer.length === 0) return;
 
-  // 更新缓存
-  logsCache = recentLogs;
-  lastCacheTime = Date.now();
+  // 取出并清空缓冲区
+  const logsToSave = [...logBuffer];
+  logBuffer = [];
+
+  await fileMutex.runExclusive(async () => {
+    try {
+      await ensureDataDir();
+      
+      let currentLogs: LogEntry[] = [];
+      try {
+        const data = await fs.readFile(LOGS_FILE, 'utf-8');
+        currentLogs = JSON.parse(data);
+      } catch (error: any) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+
+      // 合并并截断
+      const newLogs = currentLogs.concat(logsToSave).slice(-MAX_LOGS);
+      await fs.writeFile(LOGS_FILE, JSON.stringify(newLogs, null, 2), 'utf-8');
+    } catch (err) {
+      // 如果写入失败，尝试将日志放回缓冲区前面（可选，视重要性而定）
+      // 这里简单记录错误
+      console.error('Failed to flush logs:', err);
+    }
+  });
+}
+
+// 启动定期刷新
+function startFlushTimer() {
+  if (!flushTimer) {
+    flushTimer = setInterval(() => {
+      flushLogs().catch(err => console.error('Auto flush failed:', err));
+    }, FLUSH_INTERVAL);
+  }
 }
 
 // 添加日志
-export async function addLog(level, message) {
-  const logs = await loadLogs();
-  logs.push({
+export async function addLog(level: string, message: string) {
+  logBuffer.push({
     timestamp: new Date().toISOString(),
     level,
     message
   });
-  await saveLogs(logs);
+
+  // 如果缓冲区满了，立即刷新
+  if (logBuffer.length >= MAX_BUFFER_SIZE) {
+    // 异步触发，不阻塞当前请求
+    flushLogs().catch(err => console.error('Buffer full flush failed:', err));
+  } else {
+    // 确保存储定时器已启动
+    startFlushTimer();
+  }
 }
 
 // 清空日志
 export async function clearLogs() {
-  await saveLogs([]);
+  logBuffer = []; // 清空缓冲区
+  await fileMutex.runExclusive(async () => {
+    await ensureDataDir();
+    await fs.writeFile(LOGS_FILE, JSON.stringify([], null, 2), 'utf-8');
+  });
 }
 
-// 获取最近的日志
+// 获取最近的日志 (包含缓冲区中的未写入日志)
 export async function getRecentLogs(limit = 100) {
-  const logs = await loadLogs();
-  return logs.slice(-limit).reverse();
+  // 读取磁盘日志
+  let diskLogs: LogEntry[] = [];
+  try {
+    const data = await fs.readFile(LOGS_FILE, 'utf-8');
+    diskLogs = JSON.parse(data);
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  // 合并磁盘日志和内存缓冲区日志
+  const allLogs = diskLogs.concat(logBuffer);
+  return allLogs.slice(-limit).reverse();
 }

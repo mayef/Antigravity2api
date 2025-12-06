@@ -33,13 +33,11 @@
     "isolatedModules": true,                     // 确保每个文件都可以安全地单独转译
 
     /* 类型检查 */
-    "strict": false,                             // 禁用严格类型检查（渐进迁移）
-    "noImplicitAny": false,                      // 允许隐式 any 类型
-    "strictNullChecks": false,                   // 禁用严格的 null 检查
-    "noUnusedLocals": false,                     // 不报告未使用的局部变量
-    "noUnusedParameters": false,                 // 不报告未使用的参数
-    "noFallthroughCasesInSwitch": false,        // 不报告 switch 语句的 fallthrough 错误
-    "noImplicitReturns": false,                  // 不报告函数中缺少返回语句
+    "strict": true,                              // 启用严格类型检查
+    "noUnusedLocals": true,                     // 不报告未使用的局部变量
+    "noUnusedParameters": true,                 // 不报告未使用的参数
+    "noFallthroughCasesInSwitch": true,          // 报告 switch 语句的 fallthrough 错误
+    "noImplicitReturns": true,                   // 报告函数中缺少返回语句
     "skipLibCheck": true                         // 跳过库文件的类型检查
   },
   "include": [

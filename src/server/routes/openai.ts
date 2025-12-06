@@ -5,7 +5,6 @@ interface OpenAIRouteDeps {
   generateRequestBody: (messages: any[], model: string, params: any, tools: any[], apiKey?: string) => any;
   countTokensSafe: (messages: any[], model?: string) => { tokens: number; model: string; fallback: boolean };
   countJsonTokensSafe: (value: any) => number;
-  safeJsonParse: (value: any, fallback?: any, options?: any) => any;
   logger: any;
   getAvailableModels: () => Promise<any>;
 }
@@ -16,7 +15,6 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
     generateRequestBody,
     countTokensSafe,
     countJsonTokensSafe,
-    safeJsonParse,
     logger,
     getAvailableModels
   } = deps;
@@ -24,7 +22,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
   const router = express.Router();
 
   router.post('/chat/completions/count_tokens', (req: Request, res: Response) => {
-    const { messages = [], model = 'gpt-4o', tools = [] } = req.body || {};
+    const { messages = [], tools = [] } = req.body || {};
     try {
       const chatResult = countTokensSafe(messages);
       const prompt_tokens = chatResult.tokens + (tools?.length ? countJsonTokensSafe(tools) : 0);
@@ -45,7 +43,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
     }
   });
 
-  router.get('/models', async (req: Request, res: Response) => {
+  router.get('/models', async (_req: Request, res: Response) => {
     try {
       const models = await getAvailableModels();
       res.json(models);
@@ -55,7 +53,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
     }
   });
 
-  router.post('/chat/completions', async (req: Request, res: Response) => {
+  router.post('/chat/completions', async (req: Request, res: Response): Promise<any> => {
     let { messages, model, stream = true, tools = [], ...params } = req.body;
     try {
       if (!messages) {

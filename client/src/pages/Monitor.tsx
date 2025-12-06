@@ -4,9 +4,23 @@ import { Activity, Cpu, HardDrive, Clock, Zap, RefreshCw, Pause, Play } from 'lu
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface MonitorStats {
+    cpu: number;
+    memory: {
+        used: number;
+        total: number;
+        percentage: number;
+        display?: string;
+    };
+    uptime: string | number;
+    requests: number;
+    status: string;
+    idleTime: number;
+}
+
 export default function Monitor() {
     const { token: adminToken } = useAuth();
-    const [stats, setStats] = useState({
+    const [stats, setStats] = useState<MonitorStats>({
         cpu: 0,
         memory: { used: 0, total: 0, percentage: 0 },
         uptime: 0,
@@ -36,7 +50,7 @@ export default function Monitor() {
                     memUsed = parseFloat(parts[0]);
                     memTotal = parseFloat(parts[1]);
                     if (memTotal > 0) {
-                        memPercent = ((memUsed / memTotal) * 100).toFixed(1);
+                        memPercent = parseFloat(((memUsed / memTotal) * 100).toFixed(1));
                     }
                 }
             }
@@ -66,20 +80,12 @@ export default function Monitor() {
     }, [adminToken]);
 
     useEffect(() => {
-        let interval;
+        let interval: NodeJS.Timeout;
         if (autoRefresh) {
             interval = setInterval(fetchStats, 5000);
         }
         return () => clearInterval(interval);
     }, [autoRefresh, adminToken]);
-
-    const formatUptime = (seconds) => {
-        const d = Math.floor(seconds / (3600 * 24));
-        const h = Math.floor((seconds % (3600 * 24)) / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = Math.floor(seconds % 60);
-        return `${d}d ${h}h ${m}m ${s}s`;
-    };
 
     return (
         <div className="space-y-6">
@@ -163,7 +169,17 @@ export default function Monitor() {
     );
 }
 
-function MonitorCard({ title, value, subtext, icon: Icon, color, bg, className }) {
+interface MonitorCardProps {
+    title: string;
+    value: string | number;
+    subtext?: string;
+    icon: React.ElementType;
+    color: string;
+    bg: string;
+    className?: string;
+}
+
+function MonitorCard({ title, value, subtext, icon: Icon, color, bg, className }: MonitorCardProps) {
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}

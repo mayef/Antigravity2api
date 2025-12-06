@@ -1,18 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Send, Trash2, RefreshCw, Bot, User, Key, Settings2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface Message {
+    role: string;
+    content: string;
+    id?: number;
+}
+
+interface Model {
+    id: string;
+}
+
 export default function Test() {
     const { token: adminToken } = useAuth();
     // Initialize state from localStorage
-    const [messages, setMessages] = useState(() => {
+    const [messages, setMessages] = useState<Message[]>(() => {
         const saved = localStorage.getItem('test_messages');
         return saved ? JSON.parse(saved) : [];
     });
     const [input, setInput] = useState('');
-    const [models, setModels] = useState([]);
+    const [models, setModels] = useState<Model[]>([]);
     const [selectedModel, setSelectedModel] = useState(() => localStorage.getItem('test_selected_model') || '');
     const [apiKey, setApiKey] = useState(() => localStorage.getItem('test_api_key') || '');
 
@@ -33,12 +43,12 @@ export default function Test() {
         }
     }, [selectedModel]);
     const [isLoading, setIsLoading] = useState(false);
-    const [isStreaming, setIsStreaming] = useState(false);
-    const messagesEndRef = useRef(null);
+    // const [isStreaming, setIsStreaming] = useState(false); // Removed unused state
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const fetchModels = async () => {
         try {
-            const headers = {};
+            const headers: Record<string, string> = {};
             if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
             else if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
 
@@ -73,7 +83,7 @@ export default function Test() {
         setMessages(prev => [...prev, userMsg]);
         setInput('');
         setIsLoading(true);
-        setIsStreaming(true);
+        // setIsStreaming(true);
 
         const assistantMsgId = Date.now();
         setMessages(prev => [...prev, { role: 'assistant', content: '', id: assistantMsgId }]);
@@ -96,6 +106,7 @@ export default function Test() {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
+            if (!response.body) throw new Error('Response body is null');
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantContent = '';
@@ -124,12 +135,13 @@ export default function Test() {
                 }
             }
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setMessages(prev => prev.map(msg =>
-                msg.id === assistantMsgId ? { ...msg, content: `Error: ${error.message}` } : msg
+                msg.id === assistantMsgId ? { ...msg, content: `Error: ${errorMessage}` } : msg
             ));
         } finally {
             setIsLoading(false);
-            setIsStreaming(false);
+            // setIsStreaming(false);
         }
     };
 
@@ -215,7 +227,7 @@ export default function Test() {
                                     className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:border-zinc-900 outline-none transition-all"
                                 >
                                     {models.length === 0 && <option>加载中...</option>}
-                                    {models.map(m => (
+                                    {models.map((m: Model) => (
                                         <option key={m.id} value={m.id}>{m.id}</option>
                                     ))}
                                 </select>

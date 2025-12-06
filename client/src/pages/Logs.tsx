@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { RefreshCw, Trash2, ScrollText, Pause, Play } from 'lucide-react';
+import { RefreshCw, Trash2, Pause, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
 export default function Logs() {
     const { token: adminToken } = useAuth();
-    const [logs, setLogs] = useState([]);
+    const [logs, setLogs] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [autoRefresh, setAutoRefresh] = useState(false);
-    const logsEndRef = useRef(null);
+    const logsEndRef = useRef<HTMLDivElement>(null);
 
     const fetchLogs = async () => {
         setIsLoading(true);
@@ -19,7 +18,7 @@ export default function Logs() {
             });
             const text = await res.text();
             // Parse logs: Assuming they are line separated JSON or text
-            let logLines = [];
+            let logLines: any[] = [];
             try {
                 const json = JSON.parse(text);
                 if (Array.isArray(json)) logLines = json;
@@ -39,7 +38,7 @@ export default function Logs() {
     }, [adminToken]);
 
     useEffect(() => {
-        let interval;
+        let interval: NodeJS.Timeout;
         if (autoRefresh) {
             interval = setInterval(fetchLogs, 5000);
         }

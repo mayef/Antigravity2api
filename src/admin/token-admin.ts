@@ -5,53 +5,33 @@ import { spawn } from 'child_process';
 import AdmZip from 'adm-zip';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
+import tokenManager from '../auth/token-manager.js';
 
-const ACCOUNTS_FILE = path.join(process.cwd(), 'data', 'accounts.json');
-
-// 读取所有账号
-export async function loadAccounts() {
-  try {
-    const data = await fs.readFile(ACCOUNTS_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
+interface Account {
+  access_token: string;
+  refresh_token: string;
+  expires_in?: number;
+  timestamp: number;
+  enable: boolean;
+  email?: string;
+  name?: string;
 }
 
-// 保存账号
-async function saveAccounts(accounts) {
-  const dir = path.dirname(ACCOUNTS_FILE);
-  try {
-    await fs.access(dir);
-  } catch {
-    await fs.mkdir(dir, { recursive: true });
-  }
-  await fs.writeFile(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf-8');
+// 读取所有账号
+export async function loadAccounts(): Promise<Account[]> {
+  return await tokenManager.getAccounts();
 }
 
 // 删除账号
-export async function deleteAccount(index) {
-  const accounts = await loadAccounts();
-  if (index < 0 || index >= accounts.length) {
-    throw new Error('无效的账号索引');
-  }
-  accounts.splice(index, 1);
-  await saveAccounts(accounts);
+export async function deleteAccount(index: number) {
+  await tokenManager.deleteAccount(index);
   logger.info(`账号 ${index} 已删除`);
   return true;
 }
 
 // 启用/禁用账号
-export async function toggleAccount(index, enable) {
-  const accounts = await loadAccounts();
-  if (index < 0 || index >= accounts.length) {
-    throw new Error('无效的账号索引');
-  }
-  accounts[index].enable = enable;
-  await saveAccounts(accounts);
+export async function toggleAccount(index: number, enable: boolean) {
+  await tokenManager.toggleAccount(index, enable);
   logger.info(`账号 ${index} 已${enable ? '启用' : '禁用'}`);
   return true;
 }
@@ -110,11 +90,11 @@ export async function triggerLogin() {
 
 // 获取账号统计信息
 export async function getAccountStats() {
-  const accounts = await loadAccounts();
+  const accounts = await tokenManager.getAccounts();
   return {
     total: accounts.length,
-    enabled: accounts.filter(a => a.enable !== false).length,
-    disabled: accounts.filter(a => a.enable === false).length
+    enabled: accounts.filter((a: Account) => a.enable !== false).length,
+    disabled: accounts.filter((a: Account) => a.enable === false).length
   };
 }
 
@@ -125,8 +105,8 @@ const getClientId = () => config.oauth?.clientId;
 const getClientSecret = () => config.oauth?.clientSecret;
 
 // 获取 Google 账号信息
-export async function getAccountName(accessToken) {
-  return new Promise((resolve, reject) => {
+export async function getAccountName(accessToken: string) {
+  return new Promise((resolve) => {
     const options = {
       hostname: 'www.googleapis.com',
       path: '/oauth2/v2/userinfo',
@@ -157,7 +137,7 @@ export async function getAccountName(accessToken) {
   });
 }
 
-export async function addTokenFromCallback(callbackUrl) {
+export async function addTokenFromCallback(callbackUrl: string) {
   // 解析回调链接
   const url = new URL(callbackUrl);
   
@@ -169,7 +149,6 @@ export async function addTokenFromCallback(callbackUrl) {
   }
   
   const code = url.searchParams.get('code');
-  const port = url.port || '80';
 
   if (!code) {
     throw new Error('回调链接中没有找到授权码 (code)');
@@ -178,10 +157,10 @@ export async function addTokenFromCallback(callbackUrl) {
   logger.info(`正在使用授权码换取 Token...`);
 
   // 使用授权码换取 Token
-  const tokenData: any = await exchangeCodeForToken(code, port, url.origin);
+  const tokenData: any = await exchangeCodeForToken(code, url.origin);
 
   // 保存账号
-  const account = {
+  const account: Account = {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_in: tokenData.expires_in,
@@ -189,15 +168,13 @@ export async function addTokenFromCallback(callbackUrl) {
     enable: true
   };
 
-  const accounts = await loadAccounts();
-  accounts.push(account);
-  await saveAccounts(accounts);
+  await tokenManager.addAccount(account);
 
   logger.info('Token 已成功保存');
   return { success: true, message: 'Token 已成功添加' };
 }
 
-function exchangeCodeForToken(code, port, origin) {
+function exchangeCodeForToken(code: string, origin: string) {
   return new Promise((resolve, reject) => {
     const redirectUri = `${origin}/oauth-callback`;
 
@@ -241,7 +218,7 @@ function exchangeCodeForToken(code, port, origin) {
 const MAX_IMPORT_ITEMS = 500;
 const MAX_TOKENS_JSON_SIZE = 5 * 1024 * 1024; // 5MB 防止巨型文件
 
-function validateImportedToken(token) {
+function validateImportedToken(token: any) {
   if (!token || typeof token !== 'object') return false;
   const hasAccess = typeof token.access_token === 'string' && token.access_token.length > 0;
   const hasRefresh = typeof token.refresh_token === 'string' && token.refresh_token.length > 0;
@@ -251,7 +228,7 @@ function validateImportedToken(token) {
 }
 
 // 批量导入 Token
-export async function importTokens(filePath) {
+export async function importTokens(filePath: string) {
   try {
     logger.info('开始导入 Token...');
 
@@ -261,7 +238,7 @@ export async function importTokens(filePath) {
       if (stat.size > MAX_TOKENS_JSON_SIZE * 2) {
         throw new Error('上传文件过大');
       }
-    } catch (err) {
+    } catch (err: any) {
       if (err.code !== 'ENOENT') {
         throw err;
       }
@@ -298,31 +275,25 @@ export async function importTokens(filePath) {
       throw new Error(`一次最多导入 ${MAX_IMPORT_ITEMS} 个账号`);
     }
 
-    // 加载现有账号
-    const accounts = await loadAccounts();
-
-    // 添加新账号
-    let addedCount = 0;
+    // 构建待添加账号列表
+    const newAccounts: any[] = [];
+    
     for (const token of importedTokens) {
-      if (!validateImportedToken(token)) {
-        throw new Error('tokens.json 含无效字段或缺少必要字段');
-      }
-      // 检查是否已存在
-      const exists = accounts.some(acc => acc.access_token === token.access_token);
-      if (!exists) {
-        accounts.push({
-          access_token: token.access_token,
-          refresh_token: token.refresh_token,
-          expires_in: token.expires_in,
-          timestamp: token.timestamp || Date.now(),
-          enable: token.enable !== false
+        if (!validateImportedToken(token)) {
+             throw new Error('tokens.json 含无效字段或缺少必要字段');
+        }
+        
+        newAccounts.push({
+            access_token: token.access_token,
+            refresh_token: token.refresh_token,
+            expires_in: token.expires_in,
+            timestamp: token.timestamp || Date.now(),
+            enable: token.enable !== false
         });
-        addedCount++;
-      }
     }
 
-    // 保存账号
-    await saveAccounts(accounts);
+    // 批量添加并获取实际添加数量
+    const addedCount = await tokenManager.addAccounts(newAccounts);
 
     logger.info(`成功导入 ${addedCount} 个 Token 账号`);
     return {

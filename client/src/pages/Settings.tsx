@@ -4,9 +4,22 @@ import { Save, Server, Shield, Sliders, MessageSquare, AlertCircle, Loader2 } fr
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface SettingsState {
+    port?: number;
+    host?: string;
+    apiKey?: string;
+    adminPassword?: string;
+    maxRequestSize?: string;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxTokens?: number;
+    systemInstruction?: string;
+}
+
 export default function Settings() {
     const { token: adminToken } = useAuth();
-    const [settings, setSettings] = useState({});
+    const [settings, setSettings] = useState<SettingsState>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', content: '' });
@@ -41,7 +54,7 @@ export default function Settings() {
         fetchSettings();
     }, [adminToken]);
 
-    const handleChange = (key, value) => {
+    const handleChange = (key: keyof SettingsState, value: string | number) => {
         setSettings(prev => ({ ...prev, [key]: value }));
     };
 
@@ -84,7 +97,8 @@ export default function Settings() {
                 setMessage({ type: 'error', content: '保存失败' });
             }
         } catch (error) {
-            setMessage({ type: 'error', content: '保存失败: ' + error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage({ type: 'error', content: '保存失败: ' + errorMessage });
         } finally {
             setIsSaving(false);
         }
@@ -236,7 +250,14 @@ export default function Settings() {
     );
 }
 
-function FormInput({ label, value, onChange, type = "text", placeholder, helper, ...props }) {
+interface FormInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange'> {
+    label: string;
+    value: string | number;
+    onChange: (value: string) => void;
+    helper?: string;
+}
+
+function FormInput({ label, value, onChange, type = "text", placeholder, helper, ...props }: FormInputProps) {
     return (
         <div>
             <label className="block text-sm font-medium text-zinc-700 mb-2">{label}</label>

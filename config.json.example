@@ -1,0 +1,28 @@
+{
+  "server": {
+    "port": 8045,
+    "host": "0.0.0.0"
+  },
+  "oauth": {
+    "clientId": "your-google-oauth-client-id.apps.googleusercontent.com",
+    "clientSecret": "your-google-oauth-client-secret"
+  },
+  "api": {
+    "url": "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+    "modelsUrl": "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels",
+    "host": "daily-cloudcode-pa.sandbox.googleapis.com",
+    "userAgent": "antigravity/1.11.13 windows/amd64"
+  },
+  "defaults": {
+    "temperature": 1,
+    "top_p": 0.85,
+    "top_k": 50,
+    "max_tokens": 64000
+  },
+  "security": {
+    "maxRequestSize": "10mb",
+    "apiKey": "sk-your-api-key-here",
+    "adminPassword": "your-admin-password-here"
+  },
+  "systemInstruction": ""
+}

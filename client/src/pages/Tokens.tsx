@@ -1,17 +1,27 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-    Plus, RefreshCw, Trash2, Power, LogIn, Upload, Download,
-    CheckCircle2, XCircle, Search, MoreVertical, AlertCircle
+    RefreshCw, Trash2, Power, LogIn, Upload, Download,
+    CheckCircle2, XCircle, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface Token {
+    index: number;
+    name?: string;
+    email?: string;
+    access_token?: string;
+    created?: string;
+    expires_in?: number;
+    enable: boolean;
+}
+
 export default function Tokens() {
     const { token: adminToken } = useAuth();
-    const [tokens, setTokens] = useState([]);
+    const [tokens, setTokens] = useState<Token[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedTokens, setSelectedTokens] = useState(new Set());
+    const [selectedTokens, setSelectedTokens] = useState<Set<number>>(new Set());
     const [manualUrl, setManualUrl] = useState('');
     const [isAdding, setIsAdding] = useState(false);
     const [message, setMessage] = useState({ type: '', content: '' });
@@ -26,7 +36,7 @@ export default function Tokens() {
 
             // Fetch details for names
             if (data.length > 0) {
-                const indices = data.map(t => t.index);
+                const indices = data.map((t: any) => t.index);
                 const detailsRes = await fetch('/admin/tokens/details', {
                     method: 'POST',
                     headers: {
@@ -36,10 +46,10 @@ export default function Tokens() {
                     body: JSON.stringify({ indices })
                 });
                 const details = await detailsRes.json();
-                const detailsMap = {};
-                details.forEach(d => detailsMap[d.index] = d);
+                const detailsMap: Record<number, any> = {};
+                details.forEach((d: any) => detailsMap[d.index] = d);
 
-                const enrichedTokens = data.map(t => ({
+                const enrichedTokens = data.map((t: any) => ({
                     ...t,
                     ...detailsMap[t.index]
                 }));
@@ -75,7 +85,8 @@ export default function Tokens() {
                 setMessage({ type: 'error', content: data.message || '启动登录失败' });
             }
         } catch (error) {
-            setMessage({ type: 'error', content: '请求失败: ' + error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage({ type: 'error', content: '请求失败: ' + errorMessage });
         }
     };
 
@@ -84,9 +95,9 @@ export default function Tokens() {
         setIsAdding(true);
         try {
             // Extract code from URL if full URL is pasted
-            let code = manualUrl;
+            // let code = manualUrl;
             if (manualUrl.includes('code=')) {
-                code = new URL(manualUrl).searchParams.get('code');
+                // code = new URL(manualUrl).searchParams.get('code') || manualUrl;
             }
 
             const res = await fetch('/admin/tokens/callback', {
@@ -106,13 +117,14 @@ export default function Tokens() {
                 setMessage({ type: 'error', content: data.error || '添加失败' });
             }
         } catch (error) {
-            setMessage({ type: 'error', content: '请求失败: ' + error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage({ type: 'error', content: '请求失败: ' + errorMessage });
         } finally {
             setIsAdding(false);
         }
     };
 
-    const toggleToken = async (index, enable) => {
+    const toggleToken = async (index: number, enable: boolean) => {
         try {
             const res = await fetch('/admin/tokens/toggle', {
                 method: 'POST',
@@ -130,7 +142,7 @@ export default function Tokens() {
         }
     };
 
-    const deleteToken = async (index) => {
+    const deleteToken = async (index: number) => {
         if (!confirm('确定要删除这个 Token 吗？')) return;
         try {
             const res = await fetch(`/admin/tokens/${index}`, {
@@ -148,7 +160,7 @@ export default function Tokens() {
         }
     };
 
-    const toggleSelection = (index) => {
+    const toggleSelection = (index: number) => {
         const newSelected = new Set(selectedTokens);
         if (newSelected.has(index)) {
             newSelected.delete(index);
@@ -194,8 +206,9 @@ export default function Tokens() {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.zip';
-        input.onchange = async (e) => {
-            const file = e.target.files[0];
+        input.onchange = async (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            const file = target.files?.[0];
             if (!file) return;
 
             const formData = new FormData();
@@ -215,7 +228,8 @@ export default function Tokens() {
                     setMessage({ type: 'error', content: data.error || '导入失败' });
                 }
             } catch (error) {
-                setMessage({ type: 'error', content: '导入失败: ' + error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                setMessage({ type: 'error', content: '导入失败: ' + errorMessage });
             }
         };
         input.click();

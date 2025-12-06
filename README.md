@@ -45,6 +45,7 @@
 - **多账号池**: 支持配置多个 Google 账号，自动负载均衡与轮询。
 - **Token 自动保活**: 内置 Token 刷新机制，自动处理过期与 403 错误。
 - **高并发支持**: 优化的请求处理队列，支持高并发场景。
+- **并发安全**: 引入 Mutex 互斥锁机制，确保多账号并发操作的安全性与稳定性。
 
 ### 管理后台 (Dashboard)
 - **现代化 UI**: 基于 React + Tailwind CSS 构建的极简主义设计风格。
@@ -57,6 +58,7 @@
 ## 🛠️ 技术栈
 
 - **后端**: Node.js (Express), Native Fetch
+- **类型安全**: 全面启用 TypeScript 严格模式，提升代码健壮性与开发体验
 - **前端**: React, Vite, Tailwind CSS, Framer Motion, Lucide React
 - **数据存储**: 本地 JSON 文件存储 (轻量级，无外部数据库依赖)
 
@@ -77,7 +79,7 @@ npm run build
 
 ### 2. 配置服务
 
-编辑根目录下的 `config.json` 文件：
+复制 `config.json.example` 为 `config.json` 并编辑：
 
 ```json
 {
@@ -85,9 +87,14 @@ npm run build
     "port": 8045,           // 服务端口
     "host": "0.0.0.0"       // 监听地址
   },
+  "oauth": {
+    "clientId": "your-id...",     // Google OAuth Client ID
+    "clientSecret": "your-secret" // Google OAuth Client Secret
+  },
   "security": {
     "apiKey": "sk-admin",   // 管理员/默认 API Key
-    "maxRequestSize": "50mb" // 最大请求体大小
+    "adminPassword": "...", // 后台管理密码
+    "maxRequestSize": "10mb"
   },
   "defaults": {
     "model": "gemini-2.0-flash-exp" // 默认模型
