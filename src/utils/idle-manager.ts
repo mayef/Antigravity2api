@@ -5,6 +5,12 @@ import logger from './logger.js';
  * 在没有请求时降低内存使用，减少后台活动
  */
 class IdleManager {
+  private lastRequestTime: number;
+  private idleTimeout: number;
+  private isIdle: boolean;
+  private gcInterval: NodeJS.Timeout | null;
+  private checkInterval: NodeJS.Timeout | null;
+
   constructor() {
     this.lastRequestTime = Date.now();
     this.idleTimeout = 30 * 1000; // 30秒无请求后进入空闲模式（极致优化）
@@ -27,7 +33,7 @@ class IdleManager {
   /**
    * 记录请求活动
    */
-  recordActivity() {
+  recordActivity(): void {
     this.lastRequestTime = Date.now();
 
     // 如果之前是空闲状态，现在恢复活跃
@@ -39,7 +45,7 @@ class IdleManager {
   /**
    * 启动空闲检查
    */
-  startIdleCheck() {
+  startIdleCheck(): void {
     // 每15秒检查一次是否应该进入空闲模式
     this.checkInterval = setInterval(() => {
       const idleTime = Date.now() - this.lastRequestTime;
@@ -56,7 +62,7 @@ class IdleManager {
   /**
    * 进入空闲模式
    */
-  enterIdleMode() {
+  enterIdleMode(): void {
     if (this.isIdle) return;
 
     logger.info('⏸️  进入空闲模式 - 降低资源使用');
@@ -86,7 +92,7 @@ class IdleManager {
   /**
    * 退出空闲模式
    */
-  exitIdleMode() {
+  exitIdleMode(): void {
     if (!this.isIdle) return;
 
     logger.info('▶️  退出空闲模式 - 恢复正常运行');
@@ -97,17 +103,12 @@ class IdleManager {
       clearInterval(this.gcInterval);
       this.gcInterval = null;
     }
-
-    // 触发一次垃圾回收，清理空闲期间的内存
-    if (global.gc) {
-      global.gc();
-    }
   }
 
   /**
    * 获取当前状态
    */
-  getStatus() {
+  getStatus(): { isIdle: boolean; idleTimeSeconds: number; lastRequestTime: string } {
     const idleTime = Date.now() - this.lastRequestTime;
     return {
       isIdle: this.isIdle,
@@ -119,7 +120,7 @@ class IdleManager {
   /**
    * 清理资源
    */
-  destroy() {
+  destroy(): void {
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
     }

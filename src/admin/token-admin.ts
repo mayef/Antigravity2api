@@ -1,8 +1,10 @@
 import fs from 'fs/promises';
-import AdmZip from 'adm-zip';
+import https from 'https';
 import path from 'path';
 import { spawn } from 'child_process';
+import AdmZip from 'adm-zip';
 import logger from '../utils/logger.js';
+import config from '../config/config.js';
 
 const ACCOUNTS_FILE = path.join(process.cwd(), 'data', 'accounts.json');
 
@@ -117,8 +119,6 @@ export async function getAccountStats() {
 }
 
 // 从回调链接手动添加 Token
-import https from 'https';
-import config from '../config/config.js';
 
 // OAuth 凭证从配置文件读取
 const getClientId = () => config.oauth?.clientId;
@@ -178,7 +178,7 @@ export async function addTokenFromCallback(callbackUrl) {
   logger.info(`正在使用授权码换取 Token...`);
 
   // 使用授权码换取 Token
-  const tokenData = await exchangeCodeForToken(code, port, url.origin);
+  const tokenData: any = await exchangeCodeForToken(code, port, url.origin);
 
   // 保存账号
   const account = {
@@ -203,8 +203,8 @@ function exchangeCodeForToken(code, port, origin) {
 
     const postData = new URLSearchParams({
       code: code,
-      client_id: getClientId(),
-      client_secret: getClientSecret(),
+      client_id: getClientId() || '',
+      client_secret: getClientSecret() || '',
       redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     }).toString();

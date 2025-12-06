@@ -1,13 +1,13 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import archiver from 'archiver';
-import { createKey, loadKeys, deleteKey, updateKeyRateLimit, getKeyStats } from './key_manager.js';
-import { getRecentLogs, clearLogs, addLog } from './log_manager.js';
+import { createKey, loadKeys, deleteKey, updateKeyRateLimit, getKeyStats } from './key-manager.js';
+import { getRecentLogs, clearLogs, addLog } from './log-manager.js';
 import { getSystemStatus, incrementRequestCount, getTodayRequestCount } from './monitor.js';
-import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens } from './token_admin.js';
+import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens } from './token-admin.js';
 import { createSession, validateSession, destroySession, verifyPassword, adminAuth, checkLoginLimit, recordLoginAttempt } from './session.js';
-import { loadSettings, saveSettings } from './settings_manager.js';
-import tokenManager from '../auth/token_manager.js';
+import { loadSettings, saveSettings } from './settings-manager.js';
+import tokenManager from '../auth/token-manager.js';
 
 // 配置文件上传（限制文件大小和类型）
 const upload = multer({
@@ -16,32 +16,33 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 最大 10MB
     files: 1 // 单次只允许上传一个文件
   },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     // 只允许 ZIP 文件
     if (file.mimetype === 'application/zip' || 
         file.mimetype === 'application/x-zip-compressed' ||
         file.originalname.endsWith('.zip')) {
       cb(null, true);
     } else {
-      cb(new Error('只允许上传 ZIP 文件'), false);
+      cb(new Error('只允许上传 ZIP 文件'));
     }
   }
 });
 
-const router = express.Router();
+const router: express.Router = express.Router();
 
 // 登录接口（不需要认证）
-router.post('/login', async (req, res) => {
+router.post('/login', async (req: Request, res: Response) => {
   try {
     // 获取客户端 IP
-    const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ip = req.ip || (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress || 'unknown';
     
     // 检查登录尝试限制
     const limitCheck = checkLoginLimit(ip);
     if (!limitCheck.allowed) {
       await addLog('warn', `登录尝试过多: ${ip}`);
-      return res.status(429).json({ 
-        error: `登录尝试次数过多，请 ${Math.ceil(limitCheck.waitSeconds / 60)} 分钟后重试` 
+      return res.status(429).json({
+        error: `登录尝试次数过多，请 ${Math.ceil((limitCheck.waitSeconds ?? 60) / 60)} 分钟后重试`
       });
     }
     
@@ -61,14 +62,14 @@ router.post('/login', async (req, res) => {
       await addLog('warn', `管理员登录失败：密码错误 (IP: ${ip})`);
       res.status(401).json({ error: '密码错误' });
     }
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 登出接口
-router.post('/logout', (req, res) => {
-  const token = req.headers['x-admin-token'];
+router.post('/logout', (req: Request, res: Response) => {
+  const token = req.headers['x-admin-token'] as string | undefined;
   if (token) {
     destroySession(token);
   }
@@ -76,8 +77,8 @@ router.post('/logout', (req, res) => {
 });
 
 // 验证会话接口
-router.get('/verify', (req, res) => {
-  const token = req.headers['x-admin-token'];
+router.get('/verify', (req: Request, res: Response) => {
+  const token = req.headers['x-admin-token'] as string | undefined;
   if (validateSession(token)) {
     res.json({ valid: true });
   } else {
@@ -89,108 +90,108 @@ router.get('/verify', (req, res) => {
 router.use(adminAuth);
 
 // 生成新密钥
-router.post('/keys/generate', async (req, res) => {
+router.post('/keys/generate', async (req: Request, res: Response) => {
   try {
     const { name, rateLimit, key } = req.body;
     const newKey = await createKey(name, rateLimit, key);
     await addLog('success', `密钥已生成: ${name || '未命名'}`);
     res.json({ success: true, key: newKey.key, name: newKey.name, rateLimit: newKey.rateLimit });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `生成密钥失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取所有密钥
-router.get('/keys', async (req, res) => {
+router.get('/keys', async (req: Request, res: Response) => {
   try {
     const keys = await loadKeys();
     // 返回密钥列表（隐藏部分字符）
-    const safeKeys = keys.map(k => ({
+    const safeKeys = keys.map((k: any) => ({
       ...k,
       key: k.key.substring(0, 10) + '...' + k.key.substring(k.key.length - 4)
     }));
     res.json(safeKeys); // 隐藏部分密钥字符
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 删除密钥
-router.delete('/keys/:key', async (req, res) => {
+router.delete('/keys/:key', async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
     await deleteKey(key);
     await addLog('warn', `密钥已删除: ${key.substring(0, 10)}...`);
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `删除密钥失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 更新密钥频率限制
-router.patch('/keys/:key/ratelimit', async (req, res) => {
+router.patch('/keys/:key/ratelimit', async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
     const { rateLimit } = req.body;
     await updateKeyRateLimit(key, rateLimit);
     await addLog('info', `密钥频率限制已更新: ${key.substring(0, 10)}...`);
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `更新频率限制失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取密钥统计
-router.get('/keys/stats', async (req, res) => {
+router.get('/keys/stats', async (req: Request, res: Response) => {
   try {
     const stats = await getKeyStats();
     res.json(stats);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取日志
-router.get('/logs', async (req, res) => {
+router.get('/logs', async (req: Request, res: Response) => {
   try {
-    const limit = parseInt(req.query.limit) || 100;
+    const limit = parseInt(req.query.limit as string) || 100;
     const logs = await getRecentLogs(limit);
     res.json(logs);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 清空日志
-router.delete('/logs', async (req, res) => {
+router.delete('/logs', async (req: Request, res: Response) => {
   try {
     await clearLogs();
     await addLog('info', '日志已清空');
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取系统状态
-router.get('/status', async (req, res) => {
+router.get('/status', async (req: Request, res: Response) => {
   try {
     const status = getSystemStatus();
     res.json(status);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取今日请求统计
-router.get('/today-requests', async (req, res) => {
+router.get('/today-requests', async (req: Request, res: Response) => {
   try {
     const todayRequests = getTodayRequestCount();
     res.json({ todayRequests });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -198,11 +199,11 @@ router.get('/today-requests', async (req, res) => {
 // Token 管理路由
 
 // 获取所有账号
-router.get('/tokens', async (req, res) => {
+router.get('/tokens', async (req: Request, res: Response) => {
   try {
     const accounts = await loadAccounts();
     // 隐藏敏感信息，只返回必要字段
-    const safeAccounts = accounts.map((acc, index) => ({
+    const safeAccounts = accounts.map((acc: any, index: number) => ({
       index,
       access_token: acc.access_token?.substring(0, 20) + '...',
       refresh_token: acc.refresh_token ? 'exists' : 'none',
@@ -212,85 +213,85 @@ router.get('/tokens', async (req, res) => {
       created: new Date(acc.timestamp).toLocaleString()
     }));
     res.json(safeAccounts);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 删除账号
-router.delete('/tokens/:index', async (req, res) => {
+router.delete('/tokens/:index', async (req: Request, res: Response) => {
   try {
     const index = parseInt(req.params.index);
     await deleteAccount(index);
     await addLog('warn', `Token 账号 ${index} 已删除`);
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `删除 Token 失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 启用/禁用账号
-router.patch('/tokens/:index', async (req, res) => {
+router.patch('/tokens/:index', async (req: Request, res: Response) => {
   try {
     const index = parseInt(req.params.index);
     const { enable } = req.body;
     await toggleAccount(index, enable);
     await addLog('info', `Token 账号 ${index} 已${enable ? '启用' : '禁用'}`);
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `切换 Token 状态失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 启用/禁用账号 (POST方法支持)
-router.post('/tokens/toggle', async (req, res) => {
+router.post('/tokens/toggle', async (req: Request, res: Response) => {
   try {
     const { index, enable } = req.body;
     await toggleAccount(index, enable);
     await addLog('info', `Token 账号 ${index} 已${enable ? '启用' : '禁用'}`);
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `切换 Token 状态失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 触发登录流程
-router.post('/tokens/login', async (req, res) => {
+router.post('/tokens/login', async (req: Request, res: Response) => {
   try {
     await addLog('info', '开始 Google OAuth 登录流程');
     const result = await triggerLogin();
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `登录失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取 Token 统计
-router.get('/tokens/stats', async (req, res) => {
+router.get('/tokens/stats', async (req: Request, res: Response) => {
   try {
     const stats = await getAccountStats();
     res.json(stats);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取 Token 使用统计（轮询信息）
-router.get('/tokens/usage', async (req, res) => {
+router.get('/tokens/usage', async (req: Request, res: Response) => {
   try {
     const usageStats = tokenManager.getUsageStats();
     res.json(usageStats);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 手动添加 Token（通过回调链接）
-router.post('/tokens/callback', async (req, res) => {
+router.post('/tokens/callback', async (req: Request, res: Response) => {
   try {
     const { callbackUrl } = req.body;
     if (!callbackUrl) {
@@ -300,14 +301,14 @@ router.post('/tokens/callback', async (req, res) => {
     const result = await addTokenFromCallback(callbackUrl);
     await addLog('success', 'Token 已通过回调链接成功添加');
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `添加 Token 失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取账号详细信息（包括名称）
-router.post('/tokens/details', async (req, res) => {
+router.post('/tokens/details', async (req: Request, res: Response) => {
   try {
     const { indices } = req.body;
     const accounts = await loadAccounts();
@@ -316,7 +317,7 @@ router.post('/tokens/details', async (req, res) => {
     for (const index of indices) {
       if (index >= 0 && index < accounts.length) {
         const account = accounts[index];
-        const accountInfo = await getAccountName(account.access_token);
+        const accountInfo: any = await getAccountName(account.access_token);
         details.push({
           index,
           email: accountInfo.email,
@@ -331,13 +332,13 @@ router.post('/tokens/details', async (req, res) => {
     }
 
     res.json(details);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 批量导出 Token (ZIP格式)
-router.post('/tokens/export', async (req, res) => {
+router.post('/tokens/export', async (req: Request, res: Response) => {
   try {
     const { indices } = req.body;
     const accounts = await loadAccounts();
@@ -346,7 +347,7 @@ router.post('/tokens/export', async (req, res) => {
     for (const index of indices) {
       if (index >= 0 && index < accounts.length) {
         const account = accounts[index];
-        const accountInfo = await getAccountName(account.access_token);
+        const accountInfo: any = await getAccountName(account.access_token);
         exportData.push({
           email: accountInfo.email,
           name: accountInfo.name,
@@ -375,15 +376,15 @@ router.post('/tokens/export', async (req, res) => {
     archive.append(JSON.stringify(exportData, null, 2), { name: 'tokens.json' });
 
     await archive.finalize();
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `批量导出失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 批量导入 Token (ZIP格式)
-router.post('/tokens/import', (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
+router.post('/tokens/import', (req: Request, res: Response, next: NextFunction) => {
+  upload.single('file')(req, res, (err: any) => {
     if (err) {
       // Multer 错误处理
       if (err instanceof multer.MulterError) {
@@ -397,7 +398,7 @@ router.post('/tokens/import', (req, res, next) => {
     }
     next();
   });
-}, async (req, res) => {
+}, async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '请上传文件' });
@@ -407,29 +408,29 @@ router.post('/tokens/import', (req, res, next) => {
     const result = await importTokens(req.file.path);
     await addLog('success', `成功导入 ${result.count} 个 Token 账号`);
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `导入失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }
 });
 
 // 获取系统设置
-router.get('/settings', async (req, res) => {
+router.get('/settings', async (req: Request, res: Response) => {
   try {
     const settings = await loadSettings();
     res.json(settings);
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 保存系统设置
-router.post('/settings', async (req, res) => {
+router.post('/settings', async (req: Request, res: Response) => {
   try {
     const result = await saveSettings(req.body);
     await addLog('success', '系统设置已更新');
     res.json(result);
-  } catch (error) {
+  } catch (error: any) {
     await addLog('error', `保存设置失败: ${error.message}`);
     res.status(500).json({ error: error.message });
   }

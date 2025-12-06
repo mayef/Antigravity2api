@@ -1,4 +1,4 @@
-import http from 'http';
+import http, { IncomingMessage, ServerResponse } from 'http';
 import https from 'https';
 import { URL } from 'url';
 import crypto from 'crypto';
@@ -25,10 +25,10 @@ const SCOPES = [
   'https://www.googleapis.com/auth/experimentsandconfigs'
 ];
 
-function generateAuthUrl(port) {
+function generateAuthUrl(port: number): string {
   const params = new URLSearchParams({
     access_type: 'offline',
-    client_id: getClientId(),
+    client_id: getClientId() || '',
     prompt: 'consent',
     redirect_uri: `http://localhost:${port}/oauth-callback`,
     response_type: 'code',
@@ -38,11 +38,11 @@ function generateAuthUrl(port) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-function exchangeCodeForToken(code, port) {
+function exchangeCodeForToken(code: string, port: number): Promise<any> {
   return new Promise((resolve, reject) => {
     const postData = new URLSearchParams({
       code: code,
-      client_id: getClientId(),
+      client_id: getClientId() || '',
       redirect_uri: `http://localhost:${port}/oauth-callback`,
       grant_type: 'authorization_code'
     });
@@ -82,8 +82,9 @@ function exchangeCodeForToken(code, port) {
   });
 }
 
-const server = http.createServer((req, res) => {
-  const port = server.address().port;
+const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 3000;
   const url = new URL(req.url, `http://localhost:${port}`);
   
   if (url.pathname === '/oauth-callback') {
@@ -125,7 +126,7 @@ const server = http.createServer((req, res) => {
         res.end('<h1>授权成功！</h1><p>Token 已保存，可以关闭此页面。</p>');
         
         setTimeout(() => server.close(), 1000);
-      }).catch(err => {
+      }).catch((err: any) => {
         log.error('Token 交换失败:', err.message);
         
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });

@@ -1,8 +1,16 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-const AuthContext = createContext(null);
+interface AuthContextType {
+    token: string;
+    isAuthenticated: boolean;
+    isLoading: boolean;
+    login: (password: string) => Promise<{ success: boolean; error?: string }>;
+    logout: () => Promise<void>;
+}
 
-export function AuthProvider({ children }) {
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
     const [token, setToken] = useState(localStorage.getItem('adminToken') || '');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -36,7 +44,7 @@ export function AuthProvider({ children }) {
         }
     };
 
-    const login = async (password) => {
+    const login = async (password: string) => {
         try {
             const response = await fetch('/admin/login', {
                 method: 'POST',
@@ -55,7 +63,7 @@ export function AuthProvider({ children }) {
                 return { success: false, error: data.error || 'Login failed' };
             }
         } catch (error) {
-            return { success: false, error: error.message };
+            return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
         }
     };
 
@@ -80,4 +88,10 @@ export function AuthProvider({ children }) {
     );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within AuthProvider');
+    }
+    return context;
+};

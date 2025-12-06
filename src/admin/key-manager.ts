@@ -140,7 +140,7 @@ export async function checkRateLimit(keyToCheck) {
   let requestCount = 0;
   for (const [timestamp, count] of Object.entries(key.usage)) {
     if (parseInt(timestamp) >= cutoffTime) {
-      requestCount += count;
+      requestCount += (count as number);
     } else {
       delete key.usage[timestamp]; // 清理过期记录
     }

@@ -12,7 +12,15 @@ const getClientId = () => config.oauth?.clientId;
 const getClientSecret = () => config.oauth?.clientSecret;
 
 class TokenManager {
-  constructor(filePath = path.join(__dirname,'..','..','data' ,'accounts.json')) {
+  private filePath: string;
+  private tokens: any[];
+  private currentIndex: number;
+  private lastLoadTime: number;
+  private loadInterval: number;
+  private cachedData: any;
+  private usageStats: Map<string, { requests: number; lastUsed: number | null }>;
+
+  constructor(filePath: string = path.join(__dirname,'..','..','data' ,'accounts.json')) {
     this.filePath = filePath;
     this.tokens = [];
     this.currentIndex = 0;
@@ -23,7 +31,7 @@ class TokenManager {
     this.loadTokens();
   }
 
-  loadTokens() {
+  loadTokens(): void {
     try {
       // 避免频繁加载，1分钟内使用缓存
       if (Date.now() - this.lastLoadTime < this.loadInterval && this.tokens.length > 0) {
@@ -34,7 +42,7 @@ class TokenManager {
       const data = fs.readFileSync(this.filePath, 'utf8');
       const tokenArray = JSON.parse(data);
       this.cachedData = tokenArray; // 缓存原始数据
-      this.tokens = tokenArray.filter(token => token.enable !== false);
+      this.tokens = tokenArray.filter((token: any) => token.enable !== false);
       this.currentIndex = 0;
       this.lastLoadTime = Date.now();
       log.info(`成功加载 ${this.tokens.length} 个可用token`);
@@ -43,23 +51,23 @@ class TokenManager {
       if (global.gc) {
         global.gc();
       }
-    } catch (error) {
+    } catch (error: any) {
       log.error('加载token失败:', error.message);
       this.tokens = [];
     }
   }
 
-  isExpired(token) {
+  isExpired(token: any): boolean {
     if (!token.timestamp || !token.expires_in) return true;
     const expiresAt = token.timestamp + (token.expires_in * 1000);
     return Date.now() >= expiresAt - 300000;
   }
 
-  async refreshToken(token) {
+  async refreshToken(token: any): Promise<any> {
     log.info('正在刷新token...');
     const body = new URLSearchParams({
-      client_id: getClientId(),
-      client_secret: getClientSecret(),
+      client_id: getClientId() || '',
+      client_secret: getClientSecret() || '',
       grant_type: 'refresh_token',
       refresh_token: token.refresh_token
     });
@@ -77,7 +85,7 @@ class TokenManager {
     });
 
     if (response.ok) {
-      const data = await response.json();
+      const data: any = await response.json();
       token.access_token = data.access_token;
       token.expires_in = data.expires_in;
       token.timestamp = Date.now();
@@ -88,7 +96,7 @@ class TokenManager {
     }
   }
 
-  saveToFile() {
+  saveToFile(): void {
     try {
       // 使用缓存数据，减少磁盘读取
       let allTokens = this.cachedData;
@@ -97,26 +105,26 @@ class TokenManager {
         allTokens = JSON.parse(data);
       }
 
-      this.tokens.forEach(memToken => {
-        const index = allTokens.findIndex(t => t.refresh_token === memToken.refresh_token);
+      this.tokens.forEach((memToken: any) => {
+        const index = allTokens.findIndex((t: any) => t.refresh_token === memToken.refresh_token);
         if (index !== -1) allTokens[index] = memToken;
       });
 
       fs.writeFileSync(this.filePath, JSON.stringify(allTokens, null, 2), 'utf8');
       this.cachedData = allTokens; // 更新缓存
-    } catch (error) {
+    } catch (error: any) {
       log.error('保存文件失败:', error.message);
     }
   }
 
-  disableToken(token) {
+  disableToken(token: any): void {
     log.warn(`禁用token`)
     token.enable = false;
     this.saveToFile();
     this.loadTokens();
   }
 
-  async getToken() {
+  async getToken(): Promise<any> {
     this.loadTokens();
     if (this.tokens.length === 0) return null;
 
@@ -135,7 +143,7 @@ class TokenManager {
         log.info(`🔄 轮询使用 Token #${tokenIndex} (总请求: ${this.getTokenRequests(token)})`);
 
         return token;
-      } catch (error) {
+      } catch (error: any) {
         if (error.statusCode === 403) {
           log.warn(`Token ${this.currentIndex} 刷新失败(403)，禁用并尝试下一个`);
           this.disableToken(token);
@@ -151,26 +159,28 @@ class TokenManager {
   }
 
   // 记录 Token 使用
-  recordUsage(token) {
+  recordUsage(token: any): void {
     const key = token.refresh_token;
     if (!this.usageStats.has(key)) {
       this.usageStats.set(key, { requests: 0, lastUsed: null });
     }
     const stats = this.usageStats.get(key);
-    stats.requests++;
-    stats.lastUsed = Date.now();
+    if (stats) {
+      stats.requests++;
+      stats.lastUsed = Date.now();
+    }
   }
 
   // 获取单个 Token 的请求次数
-  getTokenRequests(token) {
+  getTokenRequests(token: any): number {
     const stats = this.usageStats.get(token.refresh_token);
     return stats ? stats.requests : 0;
   }
 
   // 获取所有 Token 的使用统计
-  getUsageStats() {
-    const stats = [];
-    this.tokens.forEach((token, index) => {
+  getUsageStats(): any {
+    const stats: any[] = [];
+    this.tokens.forEach((token: any, index: number) => {
       const usage = this.usageStats.get(token.refresh_token) || { requests: 0, lastUsed: null };
       stats.push({
         index,
@@ -182,19 +192,19 @@ class TokenManager {
     return {
       totalTokens: this.tokens.length,
       currentIndex: this.currentIndex,
-      totalRequests: Array.from(this.usageStats.values()).reduce((sum, s) => sum + s.requests, 0),
+      totalRequests: Array.from(this.usageStats.values()).reduce((sum: number, s: any) => sum + s.requests, 0),
       tokens: stats
     };
   }
 
-  disableCurrentToken(token) {
-    const found = this.tokens.find(t => t.access_token === token.access_token);
+  disableCurrentToken(token: any): void {
+    const found = this.tokens.find((t: any) => t.access_token === token.access_token);
     if (found) {
       this.disableToken(found);
     }
   }
 
-  async handleRequestError(error, currentAccessToken) {
+  async handleRequestError(error: any, currentAccessToken: any): Promise<any> {
     if (error.statusCode === 403) {
       log.warn('请求遇到403错误，尝试刷新token');
       const currentToken = this.tokens[this.currentIndex];
@@ -203,7 +213,7 @@ class TokenManager {
           await this.refreshToken(currentToken);
           log.info('Token刷新成功，返回新token');
           return currentToken;
-        } catch (refreshError) {
+        } catch (refreshError: any) {
           if (refreshError.statusCode === 403) {
             log.warn('刷新token也遇到403，禁用并切换到下一个');
             this.disableToken(currentToken);

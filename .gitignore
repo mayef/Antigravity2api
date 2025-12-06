@@ -18,6 +18,8 @@ pnpm-debug.log*
 
 # Lockfiles (npm)
 package-lock.json
+pnpm-lock.yaml
+yarn.lock
 
 # Upload/cache
 uploads/

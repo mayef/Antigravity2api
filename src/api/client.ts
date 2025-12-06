@@ -1,7 +1,7 @@
-import tokenManager from '../auth/token_manager.js';
+import tokenManager from '../auth/token-manager.js';
 import config from '../config/config.js';
 
-export async function generateAssistantResponse(requestBody, callback) {
+export async function generateAssistantResponse(requestBody: any, callback: (data: any) => void): Promise<void> {
   const token = await tokenManager.getToken();
 
   if (!token) {
@@ -31,10 +31,10 @@ export async function generateAssistantResponse(requestBody, callback) {
     throw new Error(`API请求失败 (${response.status}): ${errorText}`);
   }
 
-  const reader = response.body.getReader();
+  const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let thinkingStarted = false;
-  let toolCalls = [];
+  let toolCalls: any[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
@@ -104,7 +104,7 @@ export async function generateAssistantResponse(requestBody, callback) {
   }
 }
 
-export async function getAvailableModels() {
+export async function getAvailableModels(): Promise<any> {
   const token = await tokenManager.getToken();
 
   if (!token) {
@@ -132,7 +132,7 @@ export async function getAvailableModels() {
   let data;
   try {
     data = JSON.parse(responseText);
-  } catch (e) {
+  } catch (e: any) {
     throw new Error(`JSON解析失败: ${e.message}. 原始响应: ${responseText.substring(0, 200)}`);
   }
 

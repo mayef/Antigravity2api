@@ -1,8 +1,9 @@
 import crypto from 'crypto';
+import { Request, Response, NextFunction } from 'express';
 import config from '../config/config.js';
 
 // 时间无关的字符串比较，防止时序攻击
-function timingSafeEqual(a, b) {
+function timingSafeEqual(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') {
     return false;
   }
@@ -19,19 +20,19 @@ function timingSafeEqual(a, b) {
 }
 
 // 存储有效的会话 token
-const sessions = new Map();
+const sessions = new Map<string, { created: number; lastAccess: number }>();
 
 // 会话过期时间（24小时）
 const SESSION_EXPIRY = 24 * 60 * 60 * 1000;
 
 // 登录尝试限制存储 { ip -> { count, firstAttempt } }
-const loginAttempts = new Map();
+const loginAttempts = new Map<string, { count: number; firstAttempt: number }>();
 const LOGIN_LIMIT = 10; // 每 IP 每小时最多尝试次数
 const LOGIN_WINDOW = 60 * 60 * 1000; // 1小时
 const MAX_TRACKED_IPS = 10000; // 最多跟踪 IP 数，防止内存耗尽
 
 // 生成会话 token
-export function createSession() {
+export function createSession(): string {
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, {
     created: Date.now(),
@@ -41,7 +42,7 @@ export function createSession() {
 }
 
 // 验证会话
-export function validateSession(token) {
+export function validateSession(token: string | undefined): boolean {
   if (!token) return false;
 
   const session = sessions.get(token);
@@ -59,12 +60,12 @@ export function validateSession(token) {
 }
 
 // 删除会话
-export function destroySession(token) {
+export function destroySession(token: string): void {
   sessions.delete(token);
 }
 
 // 验证密码
-export function verifyPassword(password) {
+export function verifyPassword(password: string): boolean {
   const adminPassword = config.security?.adminPassword;
   if (!adminPassword) {
     // 未设置管理员密码时，拒绝所有登录尝试
@@ -75,12 +76,12 @@ export function verifyPassword(password) {
 }
 
 // 获取管理密码
-export function getAdminPassword() {
+export function getAdminPassword(): string | null {
   return config.security?.adminPassword || null;
 }
 
 // 清理过期会话和登录尝试记录
-function cleanupSessions() {
+function cleanupSessions(): void {
   const now = Date.now();
   
   // 清理过期会话
@@ -102,7 +103,7 @@ function cleanupSessions() {
 setInterval(cleanupSessions, 10 * 60 * 1000);
 
 // 检查登录尝试限制
-export function checkLoginLimit(ip) {
+export function checkLoginLimit(ip: string): { allowed: boolean; waitSeconds?: number } {
   const now = Date.now();
   const data = loginAttempts.get(ip);
   
@@ -125,7 +126,7 @@ export function checkLoginLimit(ip) {
 }
 
 // 记录登录尝试
-export function recordLoginAttempt(ip) {
+export function recordLoginAttempt(ip: string): void {
   const now = Date.now();
   const data = loginAttempts.get(ip);
   
@@ -150,9 +151,9 @@ export function recordLoginAttempt(ip) {
 }
 
 // 管理员认证中间件
-export function adminAuth(req, res, next) {
+export function adminAuth(req: Request, res: Response, next: NextFunction): void {
   // 仅从 Header 读取 Token，避免 URL 参数被记录到日志
-  const token = req.headers['x-admin-token'];
+  const token = req.headers['x-admin-token'] as string | undefined;
 
   if (validateSession(token)) {
     next();

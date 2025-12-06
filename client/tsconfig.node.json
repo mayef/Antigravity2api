@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    /* 语言和环境 */
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+
+    /* JavaScript 支持 */
+    "allowJs": true,
+    "checkJs": false,
+
+    /* 模块 */
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    /* 输出 */
+    "noEmit": true,
+
+    /* 互操作性约束 */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+
+    /* 类型检查 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "vite.config.js",
+    "postcss.config.js",
+    "tailwind.config.js",
+    "eslint.config.js"
+  ]
+}

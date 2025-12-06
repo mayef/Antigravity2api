@@ -1,15 +1,15 @@
 import { randomUUID } from 'crypto';
 import config from '../config/config.js';
 
-function generateRequestId() {
+function generateRequestId(): string {
   return `agent-${randomUUID()}`;
 }
 
-function generateSessionId() {
+function generateSessionId(): string {
   return String(-Math.floor(Math.random() * 9e18));
 }
 
-function generateProjectId() {
+function generateProjectId(): string {
   const adjectives = ['useful', 'bright', 'swift', 'calm', 'bold'];
   const nouns = ['fuze', 'wave', 'spark', 'flow', 'core'];
   const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
@@ -17,8 +17,8 @@ function generateProjectId() {
   const randomNum = Math.random().toString(36).substring(2, 7);
   return `${randomAdj}-${randomNoun}-${randomNum}`;
 }
-function extractImagesFromContent(content) {
-  const result = { text: '', images: [] };
+function extractImagesFromContent(content: any): { text: string; images: any[] } {
+  const result: { text: string; images: any[] } = { text: '', images: [] };
 
   // 如果content是字符串，直接返回
   if (typeof content === 'string') {
@@ -53,7 +53,7 @@ function extractImagesFromContent(content) {
 
   return result;
 }
-function handleUserMessage(extracted, antigravityMessages) {
+function handleUserMessage(extracted: { text: string; images: any[] }, antigravityMessages: any[]): void {
   antigravityMessages.push({
     role: "user",
     parts: [
@@ -64,7 +64,7 @@ function handleUserMessage(extracted, antigravityMessages) {
     ]
   })
 }
-function handleAssistantMessage(message, antigravityMessages) {
+function handleAssistantMessage(message: any, antigravityMessages: any[]): void {
   const lastMessage = antigravityMessages[antigravityMessages.length - 1];
   const hasToolCalls = message.tool_calls && message.tool_calls.length > 0;
 
@@ -81,7 +81,7 @@ function handleAssistantMessage(message, antigravityMessages) {
 
   const hasContent = contentText && contentText.trim() !== '';
 
-  const antigravityTools = hasToolCalls ? message.tool_calls.map(toolCall => ({
+  const antigravityTools = hasToolCalls ? message.tool_calls.map((toolCall: any) => ({
     functionCall: {
       id: toolCall.id,
       name: toolCall.function.name,
@@ -104,7 +104,7 @@ function handleAssistantMessage(message, antigravityMessages) {
         text = text.replace(signatureMatch[0], '').trim();
       }
 
-      const part = { text };
+      const part: any = { text };
       if (thoughtSignature) {
         part.thought_signature = thoughtSignature;
       }
@@ -118,7 +118,7 @@ function handleAssistantMessage(message, antigravityMessages) {
     })
   }
 }
-function handleToolCall(message, antigravityMessages) {
+function handleToolCall(message: any, antigravityMessages: any[]): void {
   // 从之前的 model 消息中找到对应的 functionCall name
   let functionName = '';
   for (let i = antigravityMessages.length - 1; i >= 0; i--) {
@@ -146,7 +146,7 @@ function handleToolCall(message, antigravityMessages) {
   };
 
   // 如果上一条消息是 user 且包含 functionResponse，则合并
-  if (lastMessage?.role === "user" && lastMessage.parts.some(p => p.functionResponse)) {
+  if (lastMessage?.role === "user" && lastMessage.parts.some((p: any) => p.functionResponse)) {
     lastMessage.parts.push(functionResponse);
   } else {
     antigravityMessages.push({
@@ -155,8 +155,8 @@ function handleToolCall(message, antigravityMessages) {
     });
   }
 }
-function openaiMessageToAntigravity(openaiMessages) {
-  const antigravityMessages = [];
+function openaiMessageToAntigravity(openaiMessages: any[]): any[] {
+  const antigravityMessages: any[] = [];
   for (const message of openaiMessages) {
     if (message.role === "user" || message.role === "system") {
       const extracted = extractImagesFromContent(message.content);
@@ -170,8 +170,8 @@ function openaiMessageToAntigravity(openaiMessages) {
 
   return antigravityMessages;
 }
-function generateGenerationConfig(parameters, enableThinking, actualModelName) {
-  const generationConfig = {
+function generateGenerationConfig(parameters: any, enableThinking: boolean, actualModelName: string): any {
+  const generationConfig: any = {
     topP: parameters.top_p ?? config.defaults.top_p,
     topK: parameters.top_k ?? config.defaults.top_k,
     temperature: parameters.temperature ?? config.defaults.temperature,
@@ -201,7 +201,7 @@ function generateGenerationConfig(parameters, enableThinking, actualModelName) {
 const MAX_TOOLS = 32;
 const MAX_TOOL_SCHEMA_SIZE = 50 * 1024; // 50KB 防止巨型 JSON
 
-function sanitizeTool(tool) {
+function sanitizeTool(tool: any): any {
   if (!tool || tool.type !== 'function' || !tool.function) return null;
   const { name, description, parameters } = tool.function;
   if (typeof name !== 'string' || !name.trim()) return null;
@@ -228,7 +228,7 @@ function sanitizeTool(tool) {
   };
 }
 
-function convertOpenAIToolsToAntigravity(openaiTools) {
+function convertOpenAIToolsToAntigravity(openaiTools: any[]): any[] {
   if (!openaiTools || openaiTools.length === 0) return [];
   if (!Array.isArray(openaiTools)) {
     throw new Error('tools 必须是数组');
@@ -239,7 +239,7 @@ function convertOpenAIToolsToAntigravity(openaiTools) {
   const sanitized = openaiTools.map(sanitizeTool).filter(Boolean);
   return sanitized;
 }
-function convertAnthropicToolsToAntigravity(tools = []) {
+function convertAnthropicToolsToAntigravity(tools: any[] = []): any[] {
   const openaiLikeTools = Array.isArray(tools)
     ? tools.map(tool => ({
         type: 'function',
@@ -252,11 +252,11 @@ function convertAnthropicToolsToAntigravity(tools = []) {
     : [];
   return convertOpenAIToolsToAntigravity(openaiLikeTools);
 }
-const idCache = new Map();
+const idCache = new Map<string, any>();
 const SESSION_ID_DURATION = 60 * 60 * 1000; // 1 hour
 const PROJECT_ID_DURATION = 12 * 60 * 60 * 1000; // 12 hours
 
-function getCachedIds(apiKey) {
+function getCachedIds(apiKey: string): any {
   const now = Date.now();
   let cache = idCache.get(apiKey);
 
@@ -284,7 +284,7 @@ function getCachedIds(apiKey) {
   return cache;
 }
 
-function generateRequestBody(openaiMessages, modelName, parameters, openaiTools, apiKey) {
+function generateRequestBody(openaiMessages: any[], modelName: string, parameters: any, openaiTools: any[], apiKey?: string): any {
   const enableThinking = modelName.endsWith('-thinking') ||
     modelName === 'gemini-2.5-pro' ||
     modelName === 'gemini-2.5-pro-image' ||
@@ -319,7 +319,7 @@ function generateRequestBody(openaiMessages, modelName, parameters, openaiTools,
     userAgent: "antigravity"
   }
 }
-function extractAnthropicContent(content) {
+function extractAnthropicContent(content: any): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -341,7 +341,7 @@ function extractAnthropicContent(content) {
   }
   return '';
 }
-function anthropicBlockToInlineData(block) {
+function anthropicBlockToInlineData(block: any): any {
   const source = block?.source || {};
   const data = source.data || source.data64 || source.base64 || source.value;
   if (!data) return null;
@@ -353,7 +353,7 @@ function anthropicBlockToInlineData(block) {
     }
   };
 }
-function anthropicBlockToFunctionResponse(block) {
+function anthropicBlockToFunctionResponse(block: any): any {
   const id = block?.tool_use_id || block?.id;
   const name = block?.name || '';
   const output = extractAnthropicContent(block?.content);
@@ -368,10 +368,10 @@ function anthropicBlockToFunctionResponse(block) {
     }
   };
 }
-function anthropicMessagesToAntigravity(messages = [], system) {
-  const antigravityMessages = [];
+function anthropicMessagesToAntigravity(messages: any[] = [], system?: any): any[] {
+  const antigravityMessages: any[] = [];
 
-  const pushUserSystem = (text) => {
+  const pushUserSystem = (text: string) => {
     if (!text) return;
     antigravityMessages.push({
       role: 'user',
@@ -449,7 +449,7 @@ function anthropicMessagesToAntigravity(messages = [], system) {
 
   return antigravityMessages;
 }
-function generateAnthropicRequestBody(messages, system, modelName, parameters, anthropicTools, apiKey) {
+function generateAnthropicRequestBody(messages: any[], system: any, modelName: string, parameters: any, anthropicTools: any[], apiKey?: string): any {
   const enableThinking = modelName.endsWith('-thinking') ||
     modelName === 'gemini-2.5-pro' ||
     modelName === 'gemini-2.5-pro-image' ||

@@ -1,6 +1,16 @@
-import express from 'express';
+import express, { Request, Response, Application } from 'express';
 
-function registerOpenAIRoutes(app, deps) {
+interface OpenAIRouteDeps {
+  generateAssistantResponse: (body: any, callback: (data: any) => void) => Promise<void>;
+  generateRequestBody: (messages: any[], model: string, params: any, tools: any[], apiKey?: string) => any;
+  countTokensSafe: (messages: any[], model?: string) => { tokens: number; model: string; fallback: boolean };
+  countJsonTokensSafe: (value: any) => number;
+  safeJsonParse: (value: any, fallback?: any, options?: any) => any;
+  logger: any;
+  getAvailableModels: () => Promise<any>;
+}
+
+function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
   const {
     generateAssistantResponse,
     generateRequestBody,
@@ -13,7 +23,7 @@ function registerOpenAIRoutes(app, deps) {
 
   const router = express.Router();
 
-  router.post('/chat/completions/count_tokens', (req, res) => {
+  router.post('/chat/completions/count_tokens', (req: Request, res: Response) => {
     const { messages = [], model = 'gpt-4o', tools = [] } = req.body || {};
     try {
       const chatResult = countTokensSafe(messages);
@@ -29,23 +39,23 @@ function registerOpenAIRoutes(app, deps) {
         completion_tokens,
         total_tokens
       });
-    } catch (error) {
+    } catch (error: any) {
       logger.error('chat completions count_tokens 计算失败:', error.message);
       res.status(500).json({ error: 'Failed to count tokens' });
     }
   });
 
-  router.get('/models', async (req, res) => {
+  router.get('/models', async (req: Request, res: Response) => {
     try {
       const models = await getAvailableModels();
       res.json(models);
-    } catch (error) {
+    } catch (error: any) {
       logger.error('获取模型列表失败:', error.message);
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.post('/chat/completions', async (req, res) => {
+  router.post('/chat/completions', async (req: Request, res: Response) => {
     let { messages, model, stream = true, tools = [], ...params } = req.body;
     try {
       if (!messages) {
@@ -76,7 +86,7 @@ function registerOpenAIRoutes(app, deps) {
         const created = Math.floor(Date.now() / 1000);
         let hasToolCall = false;
         let contentAcc = '';
-        let toolCallsAcc = [];
+        let toolCallsAcc: any[] = [];
 
         await generateAssistantResponse(requestBody, (data) => {
           if (data.type === 'tool_calls') {
@@ -134,7 +144,7 @@ function registerOpenAIRoutes(app, deps) {
         res.end();
       } else {
         let fullContent = '';
-        let toolCalls = [];
+        let toolCalls: any[] = [];
         await generateAssistantResponse(requestBody, (data) => {
           if (data.type === 'tool_calls') {
             toolCalls = data.tool_calls;
@@ -143,7 +153,7 @@ function registerOpenAIRoutes(app, deps) {
           }
         });
 
-        const message = { role: 'assistant', content: fullContent };
+        const message: any = { role: 'assistant', content: fullContent };
         if (toolCalls.length > 0) {
           message.tool_calls = toolCalls;
         }
@@ -169,7 +179,7 @@ function registerOpenAIRoutes(app, deps) {
           usage
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       logger.error('生成响应失败:', error.message);
       if (!res.headersSent) {
         if (stream) {

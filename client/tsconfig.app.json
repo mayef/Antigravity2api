@@ -1,0 +1,43 @@
+{
+  "compilerOptions": {
+    /* 语言和环境 */
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+
+    /* JavaScript 支持 */
+    "allowJs": true,
+    "checkJs": false,
+
+    /* 模块 */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    /* 输出 */
+    "noEmit": true,
+
+    /* 互操作性约束 */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+
+    /* 类型检查 */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+
+    /* Linting */
+    "useDefineForClassFields": true
+  },
+  "include": ["src"]
+}

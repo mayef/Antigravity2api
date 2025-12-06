@@ -1,5 +1,5 @@
 import os from 'os';
-import idleManager from '../utils/idle_manager.js';
+import idleManager from '../utils/idle-manager.js';
 
 const startTime = Date.now();
 let requestCount = 0;

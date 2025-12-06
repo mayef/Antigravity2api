@@ -1,0 +1,53 @@
+{
+  "compilerOptions": {
+    /* 语言和环境 */
+    "target": "ES2022",                          // 设置 JavaScript 目标版本
+    "lib": ["ES2022"],                           // 指定要包含的库文件
+    "module": "NodeNext",                        // 指定模块代码生成方式
+    "moduleResolution": "NodeNext",              // 指定模块解析策略
+    
+    /* JavaScript 支持 */
+    "allowJs": true,                             // 允许编译 JavaScript 文件
+    "checkJs": false,                            // 不对 JS 文件进行类型检查
+
+    /* 模块 */
+    "rootDir": "./src",                          // 指定源文件的根目录
+    "baseUrl": "./",                             // 解析非相对模块名的基准目录
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "resolveJsonModule": true,                   // 允许导入 .json 文件
+    "allowImportingTsExtensions": true,          // 允许导入 .ts 扩展名
+
+    /* 输出 */
+    "outDir": "./dist",                          // 输出目录
+    "noEmit": true,                              // 不生成输出文件（使用 tsx 运行）
+    "declaration": true,                         // 生成 .d.ts 文件
+    "declarationMap": true,                      // 为声明文件生成 sourcemap
+    "sourceMap": true,                           // 生成 source map 文件
+
+    /* 互操作性约束 */
+    "esModuleInterop": true,                     // 启用 ES 模块互操作性
+    "allowSyntheticDefaultImports": true,        // 允许从没有默认导出的模块中默认导入
+    "forceConsistentCasingInFileNames": true,    // 强制文件名大小写一致
+    "isolatedModules": true,                     // 确保每个文件都可以安全地单独转译
+
+    /* 类型检查 */
+    "strict": false,                             // 禁用严格类型检查（渐进迁移）
+    "noImplicitAny": false,                      // 允许隐式 any 类型
+    "strictNullChecks": false,                   // 禁用严格的 null 检查
+    "noUnusedLocals": false,                     // 不报告未使用的局部变量
+    "noUnusedParameters": false,                 // 不报告未使用的参数
+    "noFallthroughCasesInSwitch": false,        // 不报告 switch 语句的 fallthrough 错误
+    "noImplicitReturns": false,                  // 不报告函数中缺少返回语句
+    "skipLibCheck": true                         // 跳过库文件的类型检查
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "client"
+  ]
+}

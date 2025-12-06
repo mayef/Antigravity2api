@@ -1,7 +1,24 @@
 import fs from 'fs';
 import log from '../utils/logger.js';
 
-const defaultConfig = {
+interface ConfigType {
+  server: { port: number; host: string };
+  api: {
+    url: string;
+    modelsUrl: string;
+    host: string;
+    userAgent: string;
+  };
+  oauth: {
+    clientId: string | null;
+    clientSecret: string | null;
+  };
+  defaults: { temperature: number; top_p: number; top_k: number; max_tokens: number };
+  security: { maxRequestSize: string; apiKey: string | null; adminPassword?: string };
+  systemInstruction: string;
+}
+
+const defaultConfig: ConfigType = {
   server: { port: 8045, host: '127.0.0.1' },
   api: {
     url: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse',
@@ -19,9 +36,9 @@ const defaultConfig = {
   systemInstruction: '你是聊天机器人，专门为用户提供聊天和情绪价值，协助进行小说创作或者角色扮演，也可以提供数学或者代码上的建议'
 };
 
-let config = JSON.parse(JSON.stringify(defaultConfig));
+let config: ConfigType = JSON.parse(JSON.stringify(defaultConfig));
 
-export function reloadConfig() {
+export function reloadConfig(): boolean {
   try {
     const newConfig = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
 
@@ -38,7 +55,7 @@ export function reloadConfig() {
 
     log.info('✓ 配置文件已重载');
     return true;
-  } catch (error) {
+  } catch (error: any) {
     log.error('⚠ 重载配置文件失败:', error.message);
     return false;
   }

@@ -11,7 +11,7 @@ import Logs from './pages/Logs';
 import Monitor from './pages/Monitor';
 import Settings from './pages/Settings';
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {

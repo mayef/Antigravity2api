@@ -1,6 +1,6 @@
-import express from 'express';
+import express, { Request, Response, Application } from 'express';
 
-const extractAnthropicText = (content) => {
+const extractAnthropicText = (content: any): string => {
   if (!content) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -25,9 +25,9 @@ const extractAnthropicText = (content) => {
   return String(content);
 };
 
-const anthropicToTokenMessages = (messages = [], system) => {
-  const result = [];
-  const pushIfAny = (role, text) => {
+const anthropicToTokenMessages = (messages: any[] = [], system?: any): Array<{ role: string; content: string }> => {
+  const result: Array<{ role: string; content: string }> = [];
+  const pushIfAny = (role: string, text: string) => {
     if (text && String(text).trim()) {
       result.push({ role, content: text });
     }
@@ -86,7 +86,16 @@ const anthropicToTokenMessages = (messages = [], system) => {
   return result;
 };
 
-function registerAnthropicRoutes(app, deps) {
+interface AnthropicRouteDeps {
+  generateAssistantResponse: (body: any, callback: (data: any) => void) => Promise<void>;
+  generateAnthropicRequestBody: (messages: any[], system: any, model: string, params: any, tools: any[], apiKey?: string) => any;
+  countTokensSafe: (messages: any[], model?: string) => { tokens: number; model: string; fallback: boolean };
+  countJsonTokensSafe: (value: any) => number;
+  safeJsonParse: (value: any, fallback?: any, options?: any) => any;
+  logger: any;
+}
+
+function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): void {
   const {
     generateAssistantResponse,
     generateAnthropicRequestBody,
@@ -98,7 +107,7 @@ function registerAnthropicRoutes(app, deps) {
 
   const router = express.Router();
 
-  router.post('/messages', async (req, res) => {
+  router.post('/messages', async (req: Request, res: Response) => {
     const { messages, model, system, stream = true, tools = [], ...params } = req.body || {};
 
     if (!messages || !Array.isArray(messages) || !model) {
@@ -106,7 +115,7 @@ function registerAnthropicRoutes(app, deps) {
     }
 
     try {
-      const apiKeyHeader = req.headers['x-api-key'];
+      const apiKeyHeader = req.headers['x-api-key'] as string | undefined;
       const authHeader = req.headers.authorization;
       const apiKey = apiKeyHeader || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
 
@@ -114,7 +123,7 @@ function registerAnthropicRoutes(app, deps) {
       const tokenMessages = anthropicToTokenMessages(messages, system);
       const chatUsage = countTokensSafe(tokenMessages, model);
       const toolUsageTokens = tools?.length ? countJsonTokensSafe(tools) : 0;
-      let usage = {
+      let usage: any = {
         input_tokens: chatUsage.tokens + toolUsageTokens,
         output_tokens: null,
         fallback: chatUsage.fallback
@@ -129,8 +138,8 @@ function registerAnthropicRoutes(app, deps) {
         const created = Math.floor(Date.now() / 1000);
         let contentStarted = false;
         let accumulated = '';
-        let toolCalls = [];
-        let parseError = null;
+        let toolCalls: any[] = [];
+        let parseError: any = null;
 
         res.write(`event: message_start\ndata: ${JSON.stringify({
           type: 'message_start',
@@ -229,12 +238,12 @@ function registerAnthropicRoutes(app, deps) {
         if (toolCalls.length) {
           stop_reason = 'tool_use';
         } else if (params?.stop_sequences?.length && typeof accumulated === 'string') {
-          const matched = params.stop_sequences.find(seq => typeof seq === 'string' && accumulated.endsWith(seq));
+          const matched = params.stop_sequences.find((seq: any) => typeof seq === 'string' && accumulated.endsWith(seq));
           if (matched) {
             stop_reason = 'stop_sequence';
             stop_sequence = matched;
           }
-        } else if (params?.max_tokens && usage.output_tokens >= params.max_tokens) {
+        } else if (params?.max_tokens && usage.output_tokens !== null && usage.output_tokens >= params.max_tokens) {
           stop_reason = 'max_tokens';
         }
 
@@ -264,8 +273,8 @@ function registerAnthropicRoutes(app, deps) {
         res.end();
       } else {
         let fullContent = '';
-        let toolCalls = [];
-        let parseError = null;
+        let toolCalls: any[] = [];
+        let parseError: any = null;
         await generateAssistantResponse(requestBody, (data) => {
           if (data.type === 'tool_calls') {
             toolCalls = data.tool_calls;
@@ -304,7 +313,7 @@ function registerAnthropicRoutes(app, deps) {
           return res.status(400).json({ error: parseError.message });
         }
 
-        const message = { role: 'assistant', content: fullContent };
+        const message: any = { role: 'assistant', content: fullContent };
         if (toolCalls.length > 0) {
           message.tool_calls = toolCalls;
         }
@@ -321,12 +330,12 @@ function registerAnthropicRoutes(app, deps) {
         if (toolCalls.length) {
           stop_reason = 'tool_use';
         } else if (params?.stop_sequences?.length && typeof fullContent === 'string') {
-          const matched = params.stop_sequences.find(seq => typeof seq === 'string' && fullContent.endsWith(seq));
+          const matched = params.stop_sequences.find((seq: any) => typeof seq === 'string' && fullContent.endsWith(seq));
           if (matched) {
             stop_reason = 'stop_sequence';
             stop_sequence = matched;
           }
-        } else if (params?.max_tokens && usage.output_tokens >= params.max_tokens) {
+        } else if (params?.max_tokens && usage.output_tokens !== null && usage.output_tokens >= params.max_tokens) {
           stop_reason = 'max_tokens';
         }
 
@@ -342,7 +351,7 @@ function registerAnthropicRoutes(app, deps) {
           created_at: Date.now()
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Anthropic 路由处理失败:', error.message);
       if (!res.headersSent) {
         if (stream !== false) {
@@ -361,7 +370,7 @@ function registerAnthropicRoutes(app, deps) {
     }
   });
 
-  router.post('/messages/count_tokens', (req, res) => {
+  router.post('/messages/count_tokens', (req: Request, res: Response) => {
     const { messages = [], tools = [], system } = req.body || {};
     try {
       const tokenMessages = anthropicToTokenMessages(messages, system);
@@ -369,7 +378,7 @@ function registerAnthropicRoutes(app, deps) {
       const toolTokens = tools?.length ? countJsonTokensSafe(tools) : 0;
       const input_tokens = chatResult.tokens + toolTokens;
       res.json({ input_tokens, model: chatResult.model, fallback: chatResult.fallback });
-    } catch (error) {
+    } catch (error: any) {
       logger.error('count_tokens 计算失败:', error.message);
       res.status(500).json({ error: 'Failed to count tokens' });
     }

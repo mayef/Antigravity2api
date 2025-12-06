@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction, ErrorRequestHandler } from 'express';
 import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
@@ -11,17 +11,17 @@ import registerOpenAIRoutes from './routes/openai.js';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 import adminRoutes, { incrementRequestCount, addLog } from '../admin/routes.js';
-import { validateKey, checkRateLimit } from '../admin/key_manager.js';
-import idleManager from '../utils/idle_manager.js';
+import { validateKey, checkRateLimit } from '../admin/key-manager.js';
+import idleManager from '../utils/idle-manager.js';
 
 const DISALLOWED_SPECIAL_TOKENS = ['<|endoftext|>', '<|endofprompt|>', '<|fim_prefix|>', '<|fim_middle|>', '<|fim_suffix|>'];
 
-const stripDisallowedSpecialTokens = (text = '') => {
+const stripDisallowedSpecialTokens = (text: string = ''): string => {
   if (!text || typeof text !== 'string') return '';
   return DISALLOWED_SPECIAL_TOKENS.reduce((acc, token) => acc.replaceAll(token, ''), text);
 };
 
-const stringifyContent = (content) => {
+const stringifyContent = (content: any): string => {
   let result = '';
   if (content === null || content === undefined) {
     result = '';
@@ -51,7 +51,7 @@ const stringifyContent = (content) => {
   return stripDisallowedSpecialTokens(result);
 };
 
-const normalizeMessagesForEncoding = (msgs = []) => {
+const normalizeMessagesForEncoding = (msgs: any[] = []): Array<{ role: string; content: string }> => {
   if (!Array.isArray(msgs)) return [];
   return msgs
     .filter(m => m && typeof m === 'object')
@@ -61,16 +61,16 @@ const normalizeMessagesForEncoding = (msgs = []) => {
     }));
 };
 
-const safeJsonParse = (value, fallback = {}, options = {}) => {
+const safeJsonParse = (value: any, fallback: any = {}, options: { strict?: boolean; field?: string } = {}): any => {
   const { strict = false, field } = options;
   try {
     if (typeof value === 'string') return JSON.parse(value);
     if (value === null || value === undefined) return fallback;
     return value;
-  } catch (error) {
+  } catch (error: any) {
     const message = `${field ? `${field} ` : ''}JSON 解析失败: ${error.message}`;
     if (strict) {
-      const err = new Error(message);
+      const err: any = new Error(message);
       err.code = 'INVALID_JSON';
       throw err;
     }
@@ -80,8 +80,8 @@ const safeJsonParse = (value, fallback = {}, options = {}) => {
 };
 
 // 统一使用 gpt-4o 进行 Token 统计，避免模型差异带来的异常
-const countTokensSafe = (messages = []) => {
-  const calc = (msgs) => {
+const countTokensSafe = (messages: any[] = []): { tokens: number; model: string; fallback: boolean } => {
+  const calc = (msgs: any[]) => {
     const normalized = normalizeMessagesForEncoding(msgs);
     const tokens = encodeChat(normalized, 'gpt-4o');
     return Array.isArray(tokens) ? tokens.length : 0;
@@ -89,17 +89,17 @@ const countTokensSafe = (messages = []) => {
 
   try {
     return { tokens: calc(messages), model: 'gpt-4o', fallback: false };
-  } catch (error) {
+  } catch (error: any) {
     logger.warn(`Token 统计失败(gpt-4o): ${error.message}`);
     return { tokens: 0, model: 'gpt-4o', fallback: true };
   }
 };
 
-const countJsonTokensSafe = (value) => {
+const countJsonTokensSafe = (value: any): number => {
   try {
     const payload = typeof value === 'string' ? value : JSON.stringify(value);
     return countTokens(payload);
-  } catch (error) {
+  } catch (error: any) {
     logger.warn(`JSON Token 统计失败: ${error.message}`);
     return 0;
   }
@@ -122,7 +122,7 @@ ensureDirectories();
 const app = express();
 
 // 时间无关的字符串比较，防止时序攻击
-const timingSafeEqual = (a, b) => {
+const timingSafeEqual = (a: string, b: string): boolean => {
   if (typeof a !== 'string' || typeof b !== 'string') {
     return false;
   }
@@ -158,19 +158,21 @@ app.use(express.json({ limit: config.security.maxRequestSize }));
 // 静态资源
 app.use(express.static(path.join(process.cwd(), 'client/dist')));
 
-app.use((err, req, res, next) => {
+const errorHandler: ErrorRequestHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ error: `请求体过大，最大支持 ${config.security.maxRequestSize}` });
   }
   next(err);
-});
+};
+
+app.use(errorHandler);
 
 // ... (rest of the file)
 
 
 
 // 请求日志中间件
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   // 记录请求活动，管理空闲状态
   if (req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/')) {
     idleManager.recordActivity();
@@ -191,7 +193,7 @@ app.use((req, res, next) => {
 });
 
 // API 密钥验证和频率限制中间件
-app.use(async (req, res, next) => {
+app.use(async (req: Request, res: Response, next: NextFunction) => {
   const needsAuth = req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/');
   if (needsAuth) {
     const apiKey = config.security?.apiKey;
@@ -201,12 +203,12 @@ app.use(async (req, res, next) => {
       return res.status(401).json({ error: 'API Key not configured. Please set security.apiKey in config.json' });
     }
     if (apiKey) {
-      const apiKeyHeader = req.headers['x-api-key'];
+      const apiKeyHeader = req.headers['x-api-key'] as string | undefined;
     //   logger.info(`apiKeyHeader: ${apiKeyHeader}`);
       const authHeader = req.headers.authorization;
     //   logger.info(`authHeader: ${authHeader}`);
       const providedKey = apiKeyHeader
-        || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader);
+        || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : authHeader) || '';
       //  log debug infos
     //   logger.info(`API Key: ${apiKey}`);
     //   logger.info(`Provided Key: ${providedKey}`);
@@ -227,7 +229,7 @@ app.use(async (req, res, next) => {
       const rateLimitCheck = await checkRateLimit(providedKey);
       if (!rateLimitCheck.allowed) {
         logger.warn(`频率限制: ${req.method} ${req.path} - ${rateLimitCheck.error}`);
-        await addLog('warn', `频率限制触发: ${providedKey.substring(0, 10)}...`);
+        await addLog('warn', `频率限制触发: ${providedKey ? providedKey.substring(0, 10) : 'unknown'}...`);
 
         res.setHeader('X-RateLimit-Limit', rateLimitCheck.limit || 0);
         res.setHeader('X-RateLimit-Remaining', 0);
@@ -243,9 +245,9 @@ app.use(async (req, res, next) => {
       }
 
       // 设置频率限制响应头
-      if (rateLimitCheck.limit) {
+      if (rateLimitCheck.limit !== undefined) {
         res.setHeader('X-RateLimit-Limit', rateLimitCheck.limit);
-        res.setHeader('X-RateLimit-Remaining', rateLimitCheck.remaining);
+        res.setHeader('X-RateLimit-Remaining', rateLimitCheck.remaining ?? 0);
       }
     }
   }
@@ -276,7 +278,7 @@ registerOpenAIRoutes(app, {
 });
 
 // 所有其他请求返回 index.html (SPA 支持)
-app.get(/(.*)/, (req, res) => {
+app.get(/(.*)/, (req: Request, res: Response) => {
   res.sendFile(path.join(process.cwd(), 'client/dist', 'index.html'));
 });
 
@@ -284,7 +286,7 @@ const server = app.listen(config.server.port, config.server.host, () => {
   logger.info(`服务器已启动: ${config.server.host}:${config.server.port}`);
 });
 
-server.on('error', (error) => {
+server.on('error', (error: any) => {
   if (error.code === 'EADDRINUSE') {
     logger.error(`端口 ${config.server.port} 已被占用`);
     process.exit(1);
