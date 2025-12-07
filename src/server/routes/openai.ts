@@ -1,12 +1,37 @@
 import express, { Request, Response, Application } from 'express';
+import type {
+  OpenAIMessage,
+  OpenAITool,
+  GenerationParameters,
+  StreamCallbackData,
+  TokenCountResult,
+  AntigravityRequestBody,
+  OpenAIToolCall
+} from '../../types/index.js';
+
+interface Logger {
+  error: (message: string, ...args: unknown[]) => void;
+  info: (message: string, ...args: unknown[]) => void;
+  warn: (message: string, ...args: unknown[]) => void;
+}
+
+interface ModelsResponse {
+  object: string;
+  data: Array<{
+    id: string;
+    object: string;
+    created: number;
+    owned_by: string;
+  }>;
+}
 
 interface OpenAIRouteDeps {
-  generateAssistantResponse: (body: any, callback: (data: any) => void) => Promise<void>;
-  generateRequestBody: (messages: any[], model: string, params: any, tools: any[], apiKey?: string) => any;
-  countTokensSafe: (messages: any[], model?: string) => { tokens: number; model: string; fallback: boolean };
-  countJsonTokensSafe: (value: any) => number;
-  logger: any;
-  getAvailableModels: () => Promise<any>;
+  generateAssistantResponse: (body: AntigravityRequestBody, callback: (data: StreamCallbackData) => void) => Promise<void>;
+  generateRequestBody: (messages: OpenAIMessage[], model: string, params: GenerationParameters, tools: OpenAITool[], apiKey?: string) => AntigravityRequestBody;
+  countTokensSafe: (messages: OpenAIMessage[], model?: string) => TokenCountResult;
+  countJsonTokensSafe: (value: unknown) => number;
+  logger: Logger;
+  getAvailableModels: () => Promise<ModelsResponse>;
 }
 
 function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
@@ -37,8 +62,9 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
         completion_tokens,
         total_tokens
       });
-    } catch (error: any) {
-      logger.error('chat completions count_tokens 计算失败:', error.message);
+    } catch (error) {
+      const err = error as Error;
+      logger.error('chat completions count_tokens 计算失败:', err.message);
       res.status(500).json({ error: 'Failed to count tokens' });
     }
   });
@@ -47,9 +73,10 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
     try {
       const models = await getAvailableModels();
       res.json(models);
-    } catch (error: any) {
-      logger.error('获取模型列表失败:', error.message);
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      const err = error as Error;
+      logger.error('获取模型列表失败:', err.message);
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -84,12 +111,12 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
         const created = Math.floor(Date.now() / 1000);
         let hasToolCall = false;
         let contentAcc = '';
-        let toolCallsAcc: any[] = [];
+        let toolCallsAcc: OpenAIToolCall[] = [];
 
-        await generateAssistantResponse(requestBody, (data) => {
-          if (data.type === 'tool_calls') {
+        await generateAssistantResponse(requestBody, (data: StreamCallbackData) => {
+          if (data.type === 'tool_calls' && data.tool_calls) {
             hasToolCall = true;
-            toolCallsAcc = data.tool_calls || [];
+            toolCallsAcc = data.tool_calls;
             res.write(`data: ${JSON.stringify({
               id,
               object: 'chat.completion.chunk',
@@ -97,7 +124,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
               model,
               choices: [{ index: 0, delta: { tool_calls: data.tool_calls }, finish_reason: null }]
             })}\n\n`);
-          } else {
+          } else if (data.content) {
             contentAcc += data.content;
             res.write(`data: ${JSON.stringify({
               id,
@@ -142,19 +169,20 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
         res.end();
       } else {
         let fullContent = '';
-        let toolCalls: any[] = [];
-        await generateAssistantResponse(requestBody, (data) => {
-          if (data.type === 'tool_calls') {
+        let toolCalls: OpenAIToolCall[] = [];
+        await generateAssistantResponse(requestBody, (data: StreamCallbackData) => {
+          if (data.type === 'tool_calls' && data.tool_calls) {
             toolCalls = data.tool_calls;
-          } else {
+          } else if (data.content) {
             fullContent += data.content;
           }
         });
 
-        const message: any = { role: 'assistant', content: fullContent };
-        if (toolCalls.length > 0) {
-          message.tool_calls = toolCalls;
-        }
+        const message: OpenAIMessage = {
+          role: 'assistant',
+          content: fullContent,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+        };
 
         const outputUsage = countTokensSafe([message], model);
         const usage = {
@@ -177,8 +205,9 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
           usage
         });
       }
-    } catch (error: any) {
-      logger.error('生成响应失败:', error.message);
+    } catch (error) {
+      const err = error as Error;
+      logger.error('生成响应失败:', err.message);
       if (!res.headersSent) {
         if (stream) {
           res.setHeader('Content-Type', 'text/event-stream');
@@ -191,7 +220,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
             object: 'chat.completion.chunk',
             created,
             model,
-            choices: [{ index: 0, delta: { content: `错误: ${error.message}` }, finish_reason: null }]
+            choices: [{ index: 0, delta: { content: `错误: ${err.message}` }, finish_reason: null }]
           })}\n\n`);
           res.write(`data: ${JSON.stringify({
             id,
@@ -203,7 +232,7 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
           res.write('data: [DONE]\n\n');
           res.end();
         } else {
-          res.status(500).json({ error: error.message });
+          res.status(500).json({ error: err.message });
         }
       }
     }

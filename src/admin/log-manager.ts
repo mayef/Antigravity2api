@@ -35,9 +35,10 @@ export async function loadLogs(): Promise<LogEntry[]> {
   
   try {
     const data = await fs.readFile(LOGS_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+    return JSON.parse(data) as LogEntry[];
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
       return [];
     }
     throw error;
@@ -59,9 +60,10 @@ async function flushLogs() {
       let currentLogs: LogEntry[] = [];
       try {
         const data = await fs.readFile(LOGS_FILE, 'utf-8');
-        currentLogs = JSON.parse(data);
-      } catch (error: any) {
-        if (error.code !== 'ENOENT') throw error;
+        currentLogs = JSON.parse(data) as LogEntry[];
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException;
+        if (err.code !== 'ENOENT') throw error;
       }
 
       // 合并并截断
@@ -117,9 +119,10 @@ export async function getRecentLogs(limit = 100) {
   let diskLogs: LogEntry[] = [];
   try {
     const data = await fs.readFile(LOGS_FILE, 'utf-8');
-    diskLogs = JSON.parse(data);
-  } catch (error: any) {
-    if (error.code !== 'ENOENT') throw error;
+    diskLogs = JSON.parse(data) as LogEntry[];
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== 'ENOENT') throw error;
   }
 
   // 合并磁盘日志和内存缓冲区日志

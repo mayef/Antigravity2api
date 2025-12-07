@@ -6,19 +6,10 @@ import AdmZip from 'adm-zip';
 import logger from '../utils/logger.js';
 import config from '../config/config.js';
 import tokenManager from '../auth/token-manager.js';
-
-interface Account {
-  access_token: string;
-  refresh_token: string;
-  expires_in?: number;
-  timestamp: number;
-  enable: boolean;
-  email?: string;
-  name?: string;
-}
+import type { Token, GoogleUserInfo, ImportResult, AccountStats, OAuthTokenResponse } from '../types/index.js';
 
 // 读取所有账号
-export async function loadAccounts(): Promise<Account[]> {
+export async function loadAccounts(): Promise<Token[]> {
   return await tokenManager.getAccounts();
 }
 
@@ -89,12 +80,12 @@ export async function triggerLogin() {
 }
 
 // 获取账号统计信息
-export async function getAccountStats() {
+export async function getAccountStats(): Promise<AccountStats> {
   const accounts = await tokenManager.getAccounts();
   return {
     total: accounts.length,
-    enabled: accounts.filter((a: Account) => a.enable !== false).length,
-    disabled: accounts.filter((a: Account) => a.enable === false).length
+    enabled: accounts.filter((a: Token) => a.enable !== false).length,
+    disabled: accounts.filter((a: Token) => a.enable === false).length
   };
 }
 
@@ -105,8 +96,8 @@ const getClientId = () => config.oauth?.clientId;
 const getClientSecret = () => config.oauth?.clientSecret;
 
 // 获取 Google 账号信息
-export async function getAccountName(accessToken: string) {
-  return new Promise((resolve) => {
+export async function getAccountName(accessToken: string): Promise<GoogleUserInfo> {
+  return new Promise((resolve: (value: GoogleUserInfo) => void) => {
     const options = {
       hostname: 'www.googleapis.com',
       path: '/oauth2/v2/userinfo',
@@ -121,7 +112,7 @@ export async function getAccountName(accessToken: string) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode === 200) {
-          const data = JSON.parse(body);
+          const data = JSON.parse(body) as { email: string; name?: string };
           resolve({
             email: data.email,
             name: data.name || data.email
@@ -137,7 +128,7 @@ export async function getAccountName(accessToken: string) {
   });
 }
 
-export async function addTokenFromCallback(callbackUrl: string) {
+export async function addTokenFromCallback(callbackUrl: string): Promise<{ success: boolean; message: string }> {
   // 解析回调链接
   const url = new URL(callbackUrl);
   
@@ -157,10 +148,10 @@ export async function addTokenFromCallback(callbackUrl: string) {
   logger.info(`正在使用授权码换取 Token...`);
 
   // 使用授权码换取 Token
-  const tokenData: any = await exchangeCodeForToken(code, url.origin);
+  const tokenData = await exchangeCodeForToken(code, url.origin);
 
   // 保存账号
-  const account: Account = {
+  const account: Token = {
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
     expires_in: tokenData.expires_in,
@@ -174,8 +165,8 @@ export async function addTokenFromCallback(callbackUrl: string) {
   return { success: true, message: 'Token 已成功添加' };
 }
 
-function exchangeCodeForToken(code: string, origin: string) {
-  return new Promise((resolve, reject) => {
+function exchangeCodeForToken(code: string, origin: string): Promise<OAuthTokenResponse> {
+  return new Promise((resolve: (value: OAuthTokenResponse) => void, reject) => {
     const redirectUri = `${origin}/oauth-callback`;
 
     const postData = new URLSearchParams({
@@ -201,7 +192,7 @@ function exchangeCodeForToken(code: string, origin: string) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode === 200) {
-          resolve(JSON.parse(body));
+          resolve(JSON.parse(body) as OAuthTokenResponse);
         } else {
           logger.error(`Token 交换失败: ${body}`);
           reject(new Error(`Token 交换失败: ${res.statusCode} - ${body}`));
@@ -218,17 +209,18 @@ function exchangeCodeForToken(code: string, origin: string) {
 const MAX_IMPORT_ITEMS = 500;
 const MAX_TOKENS_JSON_SIZE = 5 * 1024 * 1024; // 5MB 防止巨型文件
 
-function validateImportedToken(token: any) {
+function validateImportedToken(token: unknown): boolean {
   if (!token || typeof token !== 'object') return false;
-  const hasAccess = typeof token.access_token === 'string' && token.access_token.length > 0;
-  const hasRefresh = typeof token.refresh_token === 'string' && token.refresh_token.length > 0;
+  const t = token as Record<string, unknown>;
+  const hasAccess = typeof t.access_token === 'string' && t.access_token.length > 0;
+  const hasRefresh = typeof t.refresh_token === 'string' && t.refresh_token.length > 0;
   if (!hasAccess || !hasRefresh) return false;
-  if (token.expires_in && typeof token.expires_in !== 'number') return false;
+  if (t.expires_in !== undefined && typeof t.expires_in !== 'number') return false;
   return true;
 }
 
 // 批量导入 Token
-export async function importTokens(filePath: string) {
+export async function importTokens(filePath: string): Promise<ImportResult> {
   try {
     logger.info('开始导入 Token...');
 
@@ -238,8 +230,9 @@ export async function importTokens(filePath: string) {
       if (stat.size > MAX_TOKENS_JSON_SIZE * 2) {
         throw new Error('上传文件过大');
       }
-    } catch (err: any) {
-      if (err.code !== 'ENOENT') {
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code !== 'ENOENT') {
         throw err;
       }
     }
@@ -265,7 +258,7 @@ export async function importTokens(filePath: string) {
     }
 
     const tokensContent = tokensBuffer.toString('utf8');
-    const importedTokens = JSON.parse(tokensContent);
+    const importedTokens = JSON.parse(tokensContent) as unknown[];
 
     // 验证数据格式
     if (!Array.isArray(importedTokens)) {
@@ -276,19 +269,20 @@ export async function importTokens(filePath: string) {
     }
 
     // 构建待添加账号列表
-    const newAccounts: any[] = [];
+    const newAccounts: Token[] = [];
     
     for (const token of importedTokens) {
         if (!validateImportedToken(token)) {
              throw new Error('tokens.json 含无效字段或缺少必要字段');
         }
         
+        const t = token as Record<string, unknown>;
         newAccounts.push({
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
-            expires_in: token.expires_in,
-            timestamp: token.timestamp || Date.now(),
-            enable: token.enable !== false
+            access_token: t.access_token as string,
+            refresh_token: t.refresh_token as string,
+            expires_in: t.expires_in as number | undefined,
+            timestamp: (t.timestamp as number) || Date.now(),
+            enable: t.enable !== false
         });
     }
 

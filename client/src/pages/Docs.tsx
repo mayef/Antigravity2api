@@ -1,18 +1,10 @@
-import { useState, useEffect } from 'react';
 import { Globe, Shield, Zap } from 'lucide-react';
 import CodeBlock from '../components/CodeBlock';
 import { cn } from '../lib/utils';
 
 export default function Docs() {
     // 动态获取基础 URL
-    const [baseUrl, setBaseUrl] = useState('');
-
-    useEffect(() => {
-        // 获取当前访问的协议、域名/IP 和端口
-        const protocol = window.location.protocol; // http: 或 https:
-        const host = window.location.host; // 包含域名/IP 和端口
-        setBaseUrl(`${protocol}//${host}`);
-    }, []);
+    const baseUrl = `${window.location.protocol}//${window.location.host}`;
 
     return (
         <div className="space-y-8 max-w-4xl mx-auto pb-12">

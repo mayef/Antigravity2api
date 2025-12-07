@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Key, Plus, Trash2, Copy, Check, Shield, Clock, Zap, AlertCircle, RefreshCw, AlertTriangle, Eye, EyeOff
@@ -37,7 +37,7 @@ export default function Keys() {
     const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; key: string | null }>({ isOpen: false, key: null });
     const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
 
-    const fetchKeys = async () => {
+    const fetchKeys = useCallback(async () => {
         setIsLoading(true);
         try {
             const res = await fetch('/admin/keys', {
@@ -51,11 +51,11 @@ export default function Keys() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [adminToken]);
 
     useEffect(() => {
         fetchKeys();
-    }, [adminToken]);
+    }, [fetchKeys]);
 
     const generateKey = async () => {
         setIsGenerating(true);

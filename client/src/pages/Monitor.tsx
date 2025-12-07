@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, Cpu, HardDrive, Clock, Zap, RefreshCw, Pause, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -31,7 +31,7 @@ export default function Monitor() {
     const [isLoading, setIsLoading] = useState(true);
     const [autoRefresh, setAutoRefresh] = useState(false);
 
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         setIsLoading(true);
         try {
             const [monitorRes, keyStatsRes] = await Promise.all([
@@ -73,11 +73,11 @@ export default function Monitor() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [adminToken]);
 
     useEffect(() => {
         fetchStats();
-    }, [adminToken]);
+    }, [fetchStats]);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -85,7 +85,7 @@ export default function Monitor() {
             interval = setInterval(fetchStats, 5000);
         }
         return () => clearInterval(interval);
-    }, [autoRefresh, adminToken]);
+    }, [autoRefresh, fetchStats]);
 
     return (
         <div className="space-y-6">

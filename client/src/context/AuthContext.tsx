@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 
 interface AuthContextType {
     token: string;
@@ -15,11 +15,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        verifySession();
+    const logout = useCallback(async () => {
+        try {
+            await fetch('/admin/logout', {
+                method: 'POST',
+                headers: { 'X-Admin-Token': token }
+            });
+        } catch {
+            // Ignore logout errors
+        }
+        setToken('');
+        localStorage.removeItem('adminToken');
+        setIsAuthenticated(false);
     }, [token]);
 
-    const verifySession = async () => {
+    const verifySession = useCallback(async () => {
         if (!token) {
             setIsAuthenticated(false);
             setIsLoading(false);
@@ -42,7 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [token, logout]);
+
+    useEffect(() => {
+        verifySession();
+    }, [verifySession]);
 
     const login = async (password: string) => {
         try {
@@ -65,20 +79,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
         }
-    };
-
-    const logout = async () => {
-        try {
-            await fetch('/admin/logout', {
-                method: 'POST',
-                headers: { 'X-Admin-Token': token }
-            });
-        } catch (e) {
-            // Ignore logout errors
-        }
-        setToken('');
-        localStorage.removeItem('adminToken');
-        setIsAuthenticated(false);
     };
 
     return (

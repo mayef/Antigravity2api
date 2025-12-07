@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     RefreshCw, Trash2, Power, LogIn, Upload, Download,
@@ -6,6 +6,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
+
+interface TokenDetail {
+    index: number;
+    name?: string;
+    email?: string;
+}
 
 interface Token {
     index: number;
@@ -26,7 +32,7 @@ export default function Tokens() {
     const [isAdding, setIsAdding] = useState(false);
     const [message, setMessage] = useState({ type: '', content: '' });
 
-    const fetchTokens = async () => {
+    const fetchTokens = useCallback(async () => {
         setIsLoading(true);
         try {
             const res = await fetch('/admin/tokens', {
@@ -36,7 +42,7 @@ export default function Tokens() {
 
             // Fetch details for names
             if (data.length > 0) {
-                const indices = data.map((t: any) => t.index);
+                const indices = data.map((t: Token) => t.index);
                 const detailsRes = await fetch('/admin/tokens/details', {
                     method: 'POST',
                     headers: {
@@ -45,11 +51,11 @@ export default function Tokens() {
                     },
                     body: JSON.stringify({ indices })
                 });
-                const details = await detailsRes.json();
-                const detailsMap: Record<number, any> = {};
-                details.forEach((d: any) => detailsMap[d.index] = d);
+                const details = await detailsRes.json() as TokenDetail[];
+                const detailsMap: Record<number, TokenDetail> = {};
+                details.forEach((d: TokenDetail) => detailsMap[d.index] = d);
 
-                const enrichedTokens = data.map((t: any) => ({
+                const enrichedTokens = data.map((t: Token) => ({
                     ...t,
                     ...detailsMap[t.index]
                 }));
@@ -63,11 +69,11 @@ export default function Tokens() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [adminToken]);
 
     useEffect(() => {
         fetchTokens();
-    }, [adminToken]);
+    }, [fetchTokens]);
 
     const handleGoogleLogin = async () => {
         try {

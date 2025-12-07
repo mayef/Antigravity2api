@@ -1,5 +1,27 @@
 import { randomUUID } from 'crypto';
 import config from '../config/config.js';
+import type {
+  OpenAIMessage,
+  OpenAIMessageContent,
+  OpenAITool,
+  OpenAIToolCall,
+  AntigravityMessage,
+  AntigravityPart,
+  AntigravityTool,
+  AntigravityTextPart,
+  AntigravityInlineData,
+  AnthropicMessage,
+  AnthropicContentBlock,
+  AnthropicTool,
+  AnthropicImageBlock,
+  AnthropicToolUseBlock,
+  AnthropicToolResultBlock,
+  ExtractedContent,
+  GenerationConfig,
+  GenerationParameters,
+  CachedIds,
+  AntigravityRequestBody
+} from '../types/index.js';
 
 function generateRequestId(): string {
   return `agent-${randomUUID()}`;
@@ -17,8 +39,8 @@ function generateProjectId(): string {
   const randomNum = Math.random().toString(36).substring(2, 7);
   return `${randomAdj}-${randomNoun}-${randomNum}`;
 }
-function extractImagesFromContent(content: any): { text: string; images: any[] } {
-  const result: { text: string; images: any[] } = { text: '', images: [] };
+function extractImagesFromContent(content: OpenAIMessageContent): ExtractedContent {
+  const result: ExtractedContent = { text: '', images: [] };
 
   // 如果content是字符串，直接返回
   if (typeof content === 'string') {
@@ -53,7 +75,7 @@ function extractImagesFromContent(content: any): { text: string; images: any[] }
 
   return result;
 }
-function handleUserMessage(extracted: { text: string; images: any[] }, antigravityMessages: any[]): void {
+function handleUserMessage(extracted: ExtractedContent, antigravityMessages: AntigravityMessage[]): void {
   antigravityMessages.push({
     role: "user",
     parts: [
@@ -64,7 +86,7 @@ function handleUserMessage(extracted: { text: string; images: any[] }, antigravi
     ]
   })
 }
-function handleAssistantMessage(message: any, antigravityMessages: any[]): void {
+function handleAssistantMessage(message: OpenAIMessage, antigravityMessages: AntigravityMessage[]): void {
   const lastMessage = antigravityMessages[antigravityMessages.length - 1];
   const hasToolCalls = message.tool_calls && message.tool_calls.length > 0;
 
@@ -81,7 +103,7 @@ function handleAssistantMessage(message: any, antigravityMessages: any[]): void 
 
   const hasContent = contentText && contentText.trim() !== '';
 
-  const antigravityTools = hasToolCalls ? message.tool_calls.map((toolCall: any) => ({
+  const antigravityTools = hasToolCalls ? message.tool_calls!.map((toolCall: OpenAIToolCall) => ({
     functionCall: {
       id: toolCall.id,
       name: toolCall.function.name,
@@ -104,7 +126,7 @@ function handleAssistantMessage(message: any, antigravityMessages: any[]): void 
         text = text.replace(signatureMatch[0], '').trim();
       }
 
-      const part: any = { text };
+      const part: AntigravityTextPart = { text };
       if (thoughtSignature) {
         part.thought_signature = thoughtSignature;
       }
@@ -118,14 +140,14 @@ function handleAssistantMessage(message: any, antigravityMessages: any[]): void 
     })
   }
 }
-function handleToolCall(message: any, antigravityMessages: any[]): void {
+function handleToolCall(message: OpenAIMessage, antigravityMessages: AntigravityMessage[]): void {
   // 从之前的 model 消息中找到对应的 functionCall name
   let functionName = '';
   for (let i = antigravityMessages.length - 1; i >= 0; i--) {
     if (antigravityMessages[i].role === 'model') {
       const parts = antigravityMessages[i].parts;
       for (const part of parts) {
-        if (part.functionCall && part.functionCall.id === message.tool_call_id) {
+        if ('functionCall' in part && part.functionCall.id === message.tool_call_id) {
           functionName = part.functionCall.name;
           break;
         }
@@ -135,18 +157,18 @@ function handleToolCall(message: any, antigravityMessages: any[]): void {
   }
 
   const lastMessage = antigravityMessages[antigravityMessages.length - 1];
-  const functionResponse = {
+  const functionResponse: AntigravityPart = {
     functionResponse: {
-      id: message.tool_call_id,
+      id: message.tool_call_id || '',
       name: functionName,
       response: {
-        output: message.content
+        output: typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
       }
     }
   };
 
   // 如果上一条消息是 user 且包含 functionResponse，则合并
-  if (lastMessage?.role === "user" && lastMessage.parts.some((p: any) => p.functionResponse)) {
+  if (lastMessage?.role === "user" && lastMessage.parts.some((p: AntigravityPart) => 'functionResponse' in p)) {
     lastMessage.parts.push(functionResponse);
   } else {
     antigravityMessages.push({
@@ -155,8 +177,8 @@ function handleToolCall(message: any, antigravityMessages: any[]): void {
     });
   }
 }
-function openaiMessageToAntigravity(openaiMessages: any[]): any[] {
-  const antigravityMessages: any[] = [];
+function openaiMessageToAntigravity(openaiMessages: OpenAIMessage[]): AntigravityMessage[] {
+  const antigravityMessages: AntigravityMessage[] = [];
   for (const message of openaiMessages) {
     if (message.role === "user" || message.role === "system") {
       const extracted = extractImagesFromContent(message.content);
@@ -170,8 +192,8 @@ function openaiMessageToAntigravity(openaiMessages: any[]): any[] {
 
   return antigravityMessages;
 }
-function generateGenerationConfig(parameters: any, enableThinking: boolean, actualModelName: string): any {
-  const generationConfig: any = {
+function generateGenerationConfig(parameters: GenerationParameters, enableThinking: boolean, actualModelName: string): GenerationConfig {
+  const generationConfig: GenerationConfig = {
     topP: parameters.top_p ?? config.defaults.top_p,
     topK: parameters.top_k ?? config.defaults.top_k,
     temperature: parameters.temperature ?? config.defaults.temperature,
@@ -201,7 +223,7 @@ function generateGenerationConfig(parameters: any, enableThinking: boolean, actu
 const MAX_TOOLS = 32;
 const MAX_TOOL_SCHEMA_SIZE = 50 * 1024; // 50KB 防止巨型 JSON
 
-function sanitizeTool(tool: any): any {
+function sanitizeTool(tool: OpenAITool): AntigravityTool | null {
   if (!tool || tool.type !== 'function' || !tool.function) return null;
   const { name, description, parameters } = tool.function;
   if (typeof name !== 'string' || !name.trim()) return null;
@@ -228,7 +250,7 @@ function sanitizeTool(tool: any): any {
   };
 }
 
-function convertOpenAIToolsToAntigravity(openaiTools: any[]): any[] {
+function convertOpenAIToolsToAntigravity(openaiTools: OpenAITool[]): AntigravityTool[] {
   if (!openaiTools || openaiTools.length === 0) return [];
   if (!Array.isArray(openaiTools)) {
     throw new Error('tools 必须是数组');
@@ -236,15 +258,15 @@ function convertOpenAIToolsToAntigravity(openaiTools: any[]): any[] {
   if (openaiTools.length > MAX_TOOLS) {
     throw new Error(`工具数量过多，最多支持 ${MAX_TOOLS} 个`);
   }
-  const sanitized = openaiTools.map(sanitizeTool).filter(Boolean);
+  const sanitized = openaiTools.map(sanitizeTool).filter((tool): tool is AntigravityTool => tool !== null);
   return sanitized;
 }
-function convertAnthropicToolsToAntigravity(tools: any[] = []): any[] {
-  const openaiLikeTools = Array.isArray(tools)
+function convertAnthropicToolsToAntigravity(tools: AnthropicTool[] = []): AntigravityTool[] {
+  const openaiLikeTools: OpenAITool[] = Array.isArray(tools)
     ? tools.map(tool => ({
-        type: 'function',
+        type: 'function' as const,
         function: {
-          name: tool?.name,
+          name: tool?.name || '',
           description: tool?.description,
           parameters: tool?.input_schema
         }
@@ -252,11 +274,11 @@ function convertAnthropicToolsToAntigravity(tools: any[] = []): any[] {
     : [];
   return convertOpenAIToolsToAntigravity(openaiLikeTools);
 }
-const idCache = new Map<string, any>();
+const idCache = new Map<string, CachedIds>();
 const SESSION_ID_DURATION = 60 * 60 * 1000; // 1 hour
 const PROJECT_ID_DURATION = 12 * 60 * 60 * 1000; // 12 hours
 
-function getCachedIds(apiKey: string): any {
+function getCachedIds(apiKey: string): CachedIds {
   const now = Date.now();
   let cache = idCache.get(apiKey);
 
@@ -284,7 +306,7 @@ function getCachedIds(apiKey: string): any {
   return cache;
 }
 
-function generateRequestBody(openaiMessages: any[], modelName: string, parameters: any, openaiTools: any[], apiKey?: string): any {
+function generateRequestBody(openaiMessages: OpenAIMessage[], modelName: string, parameters: GenerationParameters, openaiTools: OpenAITool[], apiKey?: string): AntigravityRequestBody {
   const enableThinking = modelName.endsWith('-thinking') ||
     modelName === 'gemini-2.5-pro' ||
     modelName === 'gemini-2.5-pro-image' ||
@@ -319,20 +341,20 @@ function generateRequestBody(openaiMessages: any[], modelName: string, parameter
     userAgent: "antigravity"
   }
 }
-function extractAnthropicContent(content: any): string {
+function extractAnthropicContent(content: string | AnthropicContentBlock[] | AnthropicContentBlock | null | undefined): string {
   if (!content) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content
       .map(item => {
         if (typeof item === 'string') return item;
-        if (item?.text) return item.text;
+        if ('text' in item && item.text) return item.text;
         return '';
       })
       .join('');
   }
   if (typeof content === 'object') {
-    if (content.text) return content.text;
+    if ('text' in content && content.text) return content.text;
     try {
       return JSON.stringify(content);
     } catch {
@@ -341,7 +363,7 @@ function extractAnthropicContent(content: any): string {
   }
   return '';
 }
-function anthropicBlockToInlineData(block: any): any {
+function anthropicBlockToInlineData(block: AnthropicImageBlock): AntigravityInlineData | null {
   const source = block?.source || {};
   const data = source.data || source.data64 || source.base64 || source.value;
   if (!data) return null;
@@ -353,7 +375,7 @@ function anthropicBlockToInlineData(block: any): any {
     }
   };
 }
-function anthropicBlockToFunctionResponse(block: any): any {
+function anthropicBlockToFunctionResponse(block: AnthropicToolResultBlock): { functionResponse: { id: string; name: string; response: { output: string } } } | null {
   const id = block?.tool_use_id || block?.id;
   const name = block?.name || '';
   const output = extractAnthropicContent(block?.content);
@@ -368,8 +390,8 @@ function anthropicBlockToFunctionResponse(block: any): any {
     }
   };
 }
-function anthropicMessagesToAntigravity(messages: any[] = [], system?: any): any[] {
-  const antigravityMessages: any[] = [];
+function anthropicMessagesToAntigravity(messages: AnthropicMessage[] = [], system?: string | AnthropicContentBlock[]): AntigravityMessage[] {
+  const antigravityMessages: AntigravityMessage[] = [];
 
   const pushUserSystem = (text: string) => {
     if (!text) return;
@@ -392,22 +414,23 @@ function anthropicMessagesToAntigravity(messages: any[] = [], system?: any): any
         : [];
 
     if (role === 'assistant') {
-      const parts = [];
+      const parts: AntigravityPart[] = [];
       for (const block of contentBlocks) {
-        if (block?.type === 'text') {
+        if (block.type === 'text') {
           parts.push({ text: block.text || '' });
-        } else if (block?.type === 'tool_use') {
+        } else if (block.type === 'tool_use') {
+          const toolBlock = block as AnthropicToolUseBlock;
           parts.push({
             functionCall: {
-              id: block.id || `tool_${Date.now()}`,
-              name: block.name,
+              id: toolBlock.id || `tool_${Date.now()}`,
+              name: toolBlock.name,
               args: {
-                query: block.input ?? {}
+                query: toolBlock.input ?? {}
               }
             }
           });
-        } else if (block?.type === 'image') {
-          const inline = anthropicBlockToInlineData(block);
+        } else if (block.type === 'image') {
+          const inline = anthropicBlockToInlineData(block as AnthropicImageBlock);
           if (inline) parts.push(inline);
         }
       }
@@ -421,15 +444,15 @@ function anthropicMessagesToAntigravity(messages: any[] = [], system?: any): any
     }
 
     if (role === 'user') {
-      const parts = [];
+      const parts: AntigravityPart[] = [];
       for (const block of contentBlocks) {
-        if (block?.type === 'text') {
+        if (block.type === 'text') {
           parts.push({ text: block.text || '' });
-        } else if (block?.type === 'image') {
-          const inline = anthropicBlockToInlineData(block);
+        } else if (block.type === 'image') {
+          const inline = anthropicBlockToInlineData(block as AnthropicImageBlock);
           if (inline) parts.push(inline);
-        } else if (block?.type === 'tool_result') {
-          const fnResp = anthropicBlockToFunctionResponse(block);
+        } else if (block.type === 'tool_result') {
+          const fnResp = anthropicBlockToFunctionResponse(block as AnthropicToolResultBlock);
           if (fnResp) parts.push(fnResp);
         }
       }
@@ -443,13 +466,13 @@ function anthropicMessagesToAntigravity(messages: any[] = [], system?: any): any
     }
 
     if (role === 'system') {
-      pushUserSystem(extractAnthropicContent(contentBlocks));
+      pushUserSystem(extractAnthropicContent(contentBlocks as AnthropicContentBlock[]));
     }
   }
 
   return antigravityMessages;
 }
-function generateAnthropicRequestBody(messages: any[], system: any, modelName: string, parameters: any, anthropicTools: any[], apiKey?: string): any {
+function generateAnthropicRequestBody(messages: AnthropicMessage[], system: string | AnthropicContentBlock[] | undefined, modelName: string, parameters: GenerationParameters, anthropicTools: AnthropicTool[], apiKey?: string): AntigravityRequestBody {
   const enableThinking = modelName.endsWith('-thinking') ||
     modelName === 'gemini-2.5-pro' ||
     modelName === 'gemini-2.5-pro-image' ||

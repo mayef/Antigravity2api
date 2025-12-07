@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Send, Trash2, RefreshCw, Bot, User, Key, Settings2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -46,7 +46,7 @@ export default function Test() {
     // const [isStreaming, setIsStreaming] = useState(false); // Removed unused state
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    const fetchModels = async () => {
+    const fetchModels = useCallback(async () => {
         try {
             const headers: Record<string, string> = {};
             if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
@@ -66,11 +66,11 @@ export default function Test() {
         } catch (error) {
             console.error('Failed to fetch models', error);
         }
-    };
+    }, [apiKey, adminToken, selectedModel]);
 
     useEffect(() => {
         fetchModels();
-    }, []);
+    }, [fetchModels]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

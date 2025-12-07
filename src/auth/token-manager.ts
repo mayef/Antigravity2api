@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { log } from '../utils/logger.js';
 import config from '../config/config.js';
 import { Mutex } from '../utils/mutex.js';
+import type { Token, TokenUsageStats, UsageStats, TokenStats, OAuthTokenResponse, APIError } from '../types/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,12 +15,12 @@ const getClientSecret = () => config.oauth?.clientSecret;
 
 class TokenManager {
   private filePath: string;
-  private tokens: any[];
+  private tokens: Token[];
   private currentIndex: number;
   private lastLoadTime: number;
   private loadInterval: number;
-  private cachedData: any;
-  private usageStats: Map<string, { requests: number; lastUsed: number | null }>;
+  private cachedData: Token[];
+  private usageStats: Map<string, TokenUsageStats>;
   private fileMutex: Mutex;
 
   constructor(filePath: string = path.join(__dirname,'..','..','data' ,'accounts.json')) {
@@ -28,15 +29,15 @@ class TokenManager {
     this.currentIndex = 0;
     this.lastLoadTime = 0;
     this.loadInterval = 60000; // 1分钟内不重复加载
-    this.cachedData = null; // 缓存文件数据，减少磁盘读取
+    this.cachedData = []; // 缓存文件数据，减少磁盘读取
     this.usageStats = new Map(); // Token 使用统计 { refresh_token -> { requests, lastUsed } }
     this.fileMutex = new Mutex();
     // 构造函数中不再同步加载，改为懒加载或异步初始化
     // 但为了保持兼容性，这里暂时保留同步读取尝试，或者留空等待第一次调用
     try {
        const data = fs.readFileSync(this.filePath, 'utf8');
-       this.cachedData = JSON.parse(data);
-       this.tokens = this.cachedData.filter((token: any) => token.enable !== false);
+       this.cachedData = JSON.parse(data) as Token[];
+       this.tokens = this.cachedData.filter((token: Token) => token.enable !== false);
     } catch (e) {
        this.tokens = [];
     }
@@ -57,9 +58,9 @@ class TokenManager {
         try {
             log.info('正在加载token...');
             const data = await fs.promises.readFile(this.filePath, 'utf8');
-            const tokenArray = JSON.parse(data);
+            const tokenArray = JSON.parse(data) as Token[];
             this.cachedData = tokenArray; // 缓存原始数据
-            this.tokens = tokenArray.filter((token: any) => token.enable !== false);
+            this.tokens = tokenArray.filter((token: Token) => token.enable !== false);
             // 只有当 currentIndex 超出范围时重置，或者保持原样？
             // 原逻辑重置为0，这可能导致轮询不均匀，但在重新加载时也许是合理的
             if (this.currentIndex >= this.tokens.length) {
@@ -72,10 +73,11 @@ class TokenManager {
             if (global.gc) {
                 global.gc();
             }
-        } catch (error: any) {
-            log.error('加载token失败:', error.message);
+        } catch (error) {
+            const err = error as NodeJS.ErrnoException;
+            log.error('加载token失败:', err.message);
             // 如果读取失败，不要清空现有tokens，除非是文件不存在
-            if (error.code === 'ENOENT') {
+            if (err.code === 'ENOENT') {
                  this.tokens = [];
                  this.cachedData = [];
             }
@@ -83,13 +85,13 @@ class TokenManager {
     });
   }
 
-  isExpired(token: any): boolean {
+  isExpired(token: Token): boolean {
     if (!token.timestamp || !token.expires_in) return true;
     const expiresAt = token.timestamp + (token.expires_in * 1000);
     return Date.now() >= expiresAt - 300000;
   }
 
-  async refreshToken(token: any): Promise<any> {
+  async refreshToken(token: Token): Promise<Token> {
     log.info('正在刷新token...');
     const body = new URLSearchParams({
       client_id: getClientId() || '',
@@ -111,14 +113,15 @@ class TokenManager {
     });
 
     if (response.ok) {
-      const data: any = await response.json();
+      const data = await response.json() as OAuthTokenResponse;
       token.access_token = data.access_token;
       token.expires_in = data.expires_in;
       token.timestamp = Date.now();
       await this.saveToFile();
       return token;
     } else {
-      throw { statusCode: response.status, message: await response.text() };
+      const error: APIError = { statusCode: response.status, message: await response.text() };
+      throw error;
     }
   }
 
@@ -126,16 +129,16 @@ class TokenManager {
     await this.fileMutex.runExclusive(async () => {
         try {
             // 确保 cachedData 是最新的
-            if (!this.cachedData) {
+            if (!this.cachedData || this.cachedData.length === 0) {
                 try {
                     const data = await fs.promises.readFile(this.filePath, 'utf8');
-                    this.cachedData = JSON.parse(data);
+                    this.cachedData = JSON.parse(data) as Token[];
                 } catch (e) {
                     this.cachedData = [];
                 }
             }
             
-            let allTokens = this.cachedData || [];
+            let allTokens = this.cachedData;
 
             // 将内存中的 token 状态同步回 allTokens
             // 注意：this.tokens 只是 enabled 的 token 子集
@@ -145,8 +148,8 @@ class TokenManager {
             // 但在这里，this.tokens 中的对象引用可能直接修改了（例如 refreshToken 中）
             // 所以我们需要把 this.tokens 中的变更反映到 cachedData 中
             
-            this.tokens.forEach((memToken: any) => {
-                const index = allTokens.findIndex((t: any) => t.refresh_token === memToken.refresh_token);
+            this.tokens.forEach((memToken: Token) => {
+                const index = allTokens.findIndex((t: Token) => t.refresh_token === memToken.refresh_token);
                 if (index !== -1) {
                     allTokens[index] = memToken;
                 } else {
@@ -158,20 +161,21 @@ class TokenManager {
 
             await fs.promises.writeFile(this.filePath, JSON.stringify(allTokens, null, 2), 'utf8');
             // this.cachedData 已经在上面更新了引用，或者 push 了
-        } catch (error: any) {
-            log.error('保存文件失败:', error.message);
+        } catch (error) {
+            const err = error as Error;
+            log.error('保存文件失败:', err.message);
         }
     });
   }
 
-  async disableToken(token: any): Promise<void> {
+  async disableToken(token: Token): Promise<void> {
     log.warn(`禁用token`)
     token.enable = false;
     await this.saveToFile();
     await this.loadTokens();
   }
 
-  async getToken(): Promise<any> {
+  async getToken(): Promise<Token | null> {
     await this.loadTokens();
     if (this.tokens.length === 0) return null;
 
@@ -190,12 +194,13 @@ class TokenManager {
         log.info(`🔄 轮询使用 Token #${tokenIndex} (总请求: ${this.getTokenRequests(token)})`);
 
         return token;
-      } catch (error: any) {
-        if (error.statusCode === 403) {
+      } catch (error) {
+        const err = error as APIError;
+        if (err.statusCode === 403) {
           log.warn(`Token ${this.currentIndex} 刷新失败(403)，禁用并尝试下一个`);
           await this.disableToken(token);
         } else {
-          log.error(`Token ${this.currentIndex} 刷新失败:`, error.message);
+          log.error(`Token ${this.currentIndex} 刷新失败:`, err.message);
         }
         this.currentIndex = (this.currentIndex + 1) % this.tokens.length;
         if (this.tokens.length === 0) return null;
@@ -206,7 +211,7 @@ class TokenManager {
   }
 
   // 记录 Token 使用
-  recordUsage(token: any): void {
+  recordUsage(token: Token): void {
     const key = token.refresh_token;
     if (!this.usageStats.has(key)) {
       this.usageStats.set(key, { requests: 0, lastUsed: null });
@@ -219,15 +224,15 @@ class TokenManager {
   }
 
   // 获取单个 Token 的请求次数
-  getTokenRequests(token: any): number {
+  getTokenRequests(token: Token): number {
     const stats = this.usageStats.get(token.refresh_token);
     return stats ? stats.requests : 0;
   }
 
   // 获取所有 Token 的使用统计
-  getUsageStats(): any {
-    const stats: any[] = [];
-    this.tokens.forEach((token: any, index: number) => {
+  getUsageStats(): UsageStats {
+    const stats: TokenStats[] = [];
+    this.tokens.forEach((token: Token, index: number) => {
       const usage = this.usageStats.get(token.refresh_token) || { requests: 0, lastUsed: null };
       stats.push({
         index,
@@ -239,19 +244,19 @@ class TokenManager {
     return {
       totalTokens: this.tokens.length,
       currentIndex: this.currentIndex,
-      totalRequests: Array.from(this.usageStats.values()).reduce((sum: number, s: any) => sum + s.requests, 0),
+      totalRequests: Array.from(this.usageStats.values()).reduce((sum: number, s: TokenUsageStats) => sum + s.requests, 0),
       tokens: stats
     };
   }
 
-  async disableCurrentToken(token: any): Promise<void> {
-    const found = this.tokens.find((t: any) => t.access_token === token.access_token);
+  async disableCurrentToken(token: Token): Promise<void> {
+    const found = this.tokens.find((t: Token) => t.access_token === token.access_token);
     if (found) {
       await this.disableToken(found);
     }
   }
 
-  async handleRequestError(error: any, currentAccessToken: any): Promise<any> {
+  async handleRequestError(error: APIError, currentAccessToken: string): Promise<Token | null> {
     if (error.statusCode === 403) {
       log.warn('请求遇到403错误，尝试刷新token');
       const currentToken = this.tokens[this.currentIndex];
@@ -260,13 +265,14 @@ class TokenManager {
           await this.refreshToken(currentToken);
           log.info('Token刷新成功，返回新token');
           return currentToken;
-        } catch (refreshError: any) {
-          if (refreshError.statusCode === 403) {
+        } catch (refreshError) {
+          const err = refreshError as APIError;
+          if (err.statusCode === 403) {
             log.warn('刷新token也遇到403，禁用并切换到下一个');
             await this.disableToken(currentToken);
             return await this.getToken();
           }
-          log.error('刷新token失败:', refreshError.message);
+          log.error('刷新token失败:', err.message);
         }
       }
       return await this.getToken();
@@ -276,24 +282,25 @@ class TokenManager {
 
   // --- CRUD Methods for Admin ---
 
-  async getAccounts(): Promise<any[]> {
+  async getAccounts(): Promise<Token[]> {
       return await this.fileMutex.runExclusive(async () => {
           try {
               const data = await fs.promises.readFile(this.filePath, 'utf8');
-              this.cachedData = JSON.parse(data);
+              this.cachedData = JSON.parse(data) as Token[];
               return this.cachedData;
-          } catch (e: any) {
-              if (e.code === 'ENOENT') return [];
+          } catch (e) {
+              const err = e as NodeJS.ErrnoException;
+              if (err.code === 'ENOENT') return [];
               throw e;
           }
       });
   }
 
-  async addAccount(account: any): Promise<void> {
+  async addAccount(account: Token): Promise<void> {
       await this.fileMutex.runExclusive(async () => {
           await this._reloadCache();
           // 检查 access_token 是否已存在
-          const exists = this.cachedData.some((t: any) => t.access_token === account.access_token);
+          const exists = this.cachedData.some((t: Token) => t.access_token === account.access_token);
           if (!exists) {
               this.cachedData.push(account);
               await this._writeCache();
@@ -303,14 +310,14 @@ class TokenManager {
       await this.loadTokens();
   }
 
-  async addAccounts(accounts: any[]): Promise<number> {
+  async addAccounts(accounts: Token[]): Promise<number> {
       let addedCount = 0;
       await this.fileMutex.runExclusive(async () => {
           await this._reloadCache();
           
           for (const account of accounts) {
               // 简单去重：检查 access_token
-              const exists = this.cachedData.some((t: any) => t.access_token === account.access_token);
+              const exists = this.cachedData.some((t: Token) => t.access_token === account.access_token);
               if (!exists) {
                   this.cachedData.push(account);
                   addedCount++;
@@ -356,7 +363,7 @@ class TokenManager {
       await this.loadTokens();
   }
   
-  async updateAccount(index: number, updates: any): Promise<void> {
+  async updateAccount(index: number, updates: Partial<Token>): Promise<void> {
       await this.fileMutex.runExclusive(async () => {
           await this._reloadCache();
           if (index >= 0 && index < this.cachedData.length) {
@@ -369,12 +376,13 @@ class TokenManager {
   }
 
   // Helper to reload cache from disk inside lock
-  private async _reloadCache() {
+  private async _reloadCache(): Promise<void> {
       try {
           const data = await fs.promises.readFile(this.filePath, 'utf8');
-          this.cachedData = JSON.parse(data);
-      } catch (e: any) {
-          if (e.code === 'ENOENT') {
+          this.cachedData = JSON.parse(data) as Token[];
+      } catch (e) {
+          const err = e as NodeJS.ErrnoException;
+          if (err.code === 'ENOENT') {
               this.cachedData = [];
           } else {
               throw e;
@@ -383,7 +391,7 @@ class TokenManager {
   }
 
   // Helper to write cache to disk inside lock
-  private async _writeCache() {
+  private async _writeCache(): Promise<void> {
       await fs.promises.writeFile(this.filePath, JSON.stringify(this.cachedData, null, 2), 'utf8');
   }
 }

@@ -58,9 +58,10 @@ async function ensureInitialized() {
     await ensureDataDir();
     try {
       const data = await fs.readFile(KEYS_FILE, 'utf-8');
-      keysCache = JSON.parse(data);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
+      keysCache = JSON.parse(data) as ApiKey[];
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
         keysCache = [];
       } else {
         logger.error('加载密钥文件失败', error);

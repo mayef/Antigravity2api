@@ -1,16 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { RefreshCw, Trash2, Pause, Play } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 
+interface LogEntry {
+    timestamp: string;
+    level: string;
+    message: string;
+}
+
+type LogData = LogEntry | string;
+
 export default function Logs() {
     const { token: adminToken } = useAuth();
-    const [logs, setLogs] = useState<any[]>([]);
+    const [logs, setLogs] = useState<LogData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [autoRefresh, setAutoRefresh] = useState(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
 
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
         setIsLoading(true);
         try {
             const res = await fetch('/admin/logs', {
@@ -18,10 +26,10 @@ export default function Logs() {
             });
             const text = await res.text();
             // Parse logs: Assuming they are line separated JSON or text
-            let logLines: any[] = [];
+            let logLines: LogData[] = [];
             try {
                 const json = JSON.parse(text);
-                if (Array.isArray(json)) logLines = json;
+                if (Array.isArray(json)) logLines = json as LogData[];
             } catch {
                 logLines = text.split('\n').filter(Boolean);
             }
@@ -31,11 +39,11 @@ export default function Logs() {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [adminToken]);
 
     useEffect(() => {
         fetchLogs();
-    }, [adminToken]);
+    }, [fetchLogs]);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -43,7 +51,7 @@ export default function Logs() {
             interval = setInterval(fetchLogs, 5000);
         }
         return () => clearInterval(interval);
-    }, [autoRefresh, adminToken]);
+    }, [autoRefresh, fetchLogs]);
 
     const clearLogs = async () => {
         if (!confirm('确定要清空日志吗？')) return;
