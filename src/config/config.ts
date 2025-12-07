@@ -36,7 +36,7 @@ const defaultConfig: ConfigType = {
   systemInstruction: '你是聊天机器人，专门为用户提供聊天和情绪价值，协助进行小说创作或者角色扮演，也可以提供数学或者代码上的建议'
 };
 
-let config: ConfigType = JSON.parse(JSON.stringify(defaultConfig));
+const config: ConfigType = JSON.parse(JSON.stringify(defaultConfig));
 
 export function reloadConfig(): boolean {
   try {
@@ -55,8 +55,9 @@ export function reloadConfig(): boolean {
 
     log.info('✓ 配置文件已重载');
     return true;
-  } catch (error: any) {
-    log.error('⚠ 重载配置文件失败:', error.message);
+  } catch (error) {
+    const err = error as Error;
+    log.error('⚠ 重载配置文件失败:', err.message);
     return false;
   }
 }

@@ -2,7 +2,7 @@
 
 export interface StringRule {
   name: string;
-  value: any;
+  value: unknown;
   min?: number;
   max?: number;
   optional?: boolean;
@@ -22,7 +22,7 @@ export function checkString(rule: StringRule): string | null {
 
 export interface NumberRule {
   name: string;
-  value: any;
+  value: unknown;
   min?: number;
   max?: number;
   optional?: boolean;
@@ -39,7 +39,7 @@ export function checkNumberRange(rule: NumberRule): string | null {
 
 export interface ArrayRule {
   name: string;
-  value: any;
+  value: unknown;
   min?: number;
   max?: number;
   optional?: boolean;

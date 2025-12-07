@@ -273,7 +273,7 @@ export interface AntigravityRequestBody {
 // ==================== 响应相关 ====================
 
 export interface StreamCallbackData {
-  type?: 'tool_calls' | 'content';
+  type?: 'tool_calls' | 'content' | 'thinking' | 'text';
   content?: string;
   tool_calls?: OpenAIToolCall[];
 }

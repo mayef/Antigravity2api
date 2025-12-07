@@ -38,7 +38,7 @@ class TokenManager {
        const data = fs.readFileSync(this.filePath, 'utf8');
        this.cachedData = JSON.parse(data) as Token[];
        this.tokens = this.cachedData.filter((token: Token) => token.enable !== false);
-    } catch (e) {
+    } catch {
        this.tokens = [];
     }
   }
@@ -133,12 +133,12 @@ class TokenManager {
                 try {
                     const data = await fs.promises.readFile(this.filePath, 'utf8');
                     this.cachedData = JSON.parse(data) as Token[];
-                } catch (e) {
+                } catch {
                     this.cachedData = [];
                 }
             }
             
-            let allTokens = this.cachedData;
+            const allTokens = this.cachedData;
 
             // 将内存中的 token 状态同步回 allTokens
             // 注意：this.tokens 只是 enabled 的 token 子集

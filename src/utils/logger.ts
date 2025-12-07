@@ -7,7 +7,7 @@ const colors = {
   gray: '\x1b[90m'
 };
 
-function logMessage(level: 'info' | 'warn' | 'error', ...args: any[]): void {
+function logMessage(level: 'info' | 'warn' | 'error', ...args: unknown[]): void {
   const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   const color = { info: colors.green, warn: colors.yellow, error: colors.red }[level];
   console.error(`${colors.gray}${timestamp}${colors.reset} ${color}[${level}]${colors.reset}`, ...args);
@@ -19,9 +19,9 @@ function logRequest(method: string, path: string, status: number, duration: numb
 }
 
 export const log = {
-  info: (...args: any[]) => logMessage('info', ...args),
-  warn: (...args: any[]) => logMessage('warn', ...args),
-  error: (...args: any[]) => logMessage('error', ...args),
+  info: (...args: unknown[]) => logMessage('info', ...args),
+  warn: (...args: unknown[]) => logMessage('warn', ...args),
+  error: (...args: unknown[]) => logMessage('error', ...args),
   request: logRequest
 };
 

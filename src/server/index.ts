@@ -21,7 +21,20 @@ const stripDisallowedSpecialTokens = (text: string = ''): string => {
   return DISALLOWED_SPECIAL_TOKENS.reduce((acc, token) => acc.replaceAll(token, ''), text);
 };
 
-const stringifyContent = (content: any): string => {
+// 定义内容部分的接口
+interface ContentPart {
+  text?: string | number | boolean;
+  content?: unknown;
+  image_url?: { url: string } | string;
+}
+
+// 定义消息对象的基本结构
+interface MessageShape {
+  role?: unknown;
+  content?: unknown;
+}
+
+const stringifyContent = (content: unknown): string => {
   let result = '';
   if (content === null || content === undefined) {
     result = '';
@@ -32,9 +45,13 @@ const stringifyContent = (content: any): string => {
       .map(part => {
         if (typeof part === 'string') return part;
         if (typeof part === 'number' || typeof part === 'boolean') return String(part);
-        if (part?.text) return part.text;
-        if (part?.content) return stringifyContent(part.content);
-        if (part?.image_url) return '[image]';
+        // 验证 part 是对象后再访问属性
+        if (part && typeof part === 'object') {
+          const partObj = part as ContentPart;
+          if (partObj.text !== undefined) return String(partObj.text);
+          if (partObj.content !== undefined) return stringifyContent(partObj.content);
+          if (partObj.image_url !== undefined) return '[image]';
+        }
         return '';
       })
       .join('');
@@ -51,26 +68,30 @@ const stringifyContent = (content: any): string => {
   return stripDisallowedSpecialTokens(result);
 };
 
-const normalizeMessagesForEncoding = (msgs: any[] = []): Array<{ role: string; content: string }> => {
+const normalizeMessagesForEncoding = (msgs: unknown = []): Array<{ role: string; content: string }> => {
   if (!Array.isArray(msgs)) return [];
   return msgs
     .filter(m => m && typeof m === 'object')
-    .map(m => ({
-      role: m.role || 'user',
-      content: stringifyContent(m.content)
-    }));
+    .map(m => {
+      const msgObj = m as MessageShape;
+      return {
+        role: typeof msgObj.role === 'string' ? msgObj.role : 'user',
+        content: stringifyContent(msgObj.content)
+      };
+    });
 };
 
-const safeJsonParse = (value: any, fallback: any = {}, options: { strict?: boolean; field?: string } = {}): any => {
+const safeJsonParse = <T>(value: unknown, fallback: T, options: { strict?: boolean; field?: string } = {}): T => {
   const { strict = false, field } = options;
   try {
-    if (typeof value === 'string') return JSON.parse(value);
+    if (typeof value === 'string') return JSON.parse(value) as T;
     if (value === null || value === undefined) return fallback;
-    return value;
-  } catch (error: any) {
-    const message = `${field ? `${field} ` : ''}JSON 解析失败: ${error.message}`;
+    return value as T;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const message = `${field ? `${field} ` : ''}JSON 解析失败: ${errorMessage}`;
     if (strict) {
-      const err: any = new Error(message);
+      const err = new Error(message) as Error & { code: string };
       err.code = 'INVALID_JSON';
       throw err;
     }
@@ -80,8 +101,8 @@ const safeJsonParse = (value: any, fallback: any = {}, options: { strict?: boole
 };
 
 // 统一使用 gpt-4o 进行 Token 统计，避免模型差异带来的异常
-const countTokensSafe = (messages: any[] = []): { tokens: number; model: string; fallback: boolean } => {
-  const calc = (msgs: any[]) => {
+const countTokensSafe = (messages: unknown = []): { tokens: number; model: string; fallback: boolean } => {
+  const calc = (msgs: unknown) => {
     const normalized = normalizeMessagesForEncoding(msgs);
     const tokens = encodeChat(normalized, 'gpt-4o');
     return Array.isArray(tokens) ? tokens.length : 0;
@@ -89,18 +110,20 @@ const countTokensSafe = (messages: any[] = []): { tokens: number; model: string;
 
   try {
     return { tokens: calc(messages), model: 'gpt-4o', fallback: false };
-  } catch (error: any) {
-    logger.warn(`Token 统计失败(gpt-4o): ${error.message}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.warn(`Token 统计失败(gpt-4o): ${errorMessage}`);
     return { tokens: 0, model: 'gpt-4o', fallback: true };
   }
 };
 
-const countJsonTokensSafe = (value: any): number => {
+const countJsonTokensSafe = (value: unknown): number => {
   try {
     const payload = typeof value === 'string' ? value : JSON.stringify(value);
     return countTokens(payload);
-  } catch (error: any) {
-    logger.warn(`JSON Token 统计失败: ${error.message}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.warn(`JSON Token 统计失败: ${errorMessage}`);
     return 0;
   }
 };
@@ -158,9 +181,10 @@ app.use(express.json({ limit: config.security.maxRequestSize }));
 // 静态资源
 app.use(express.static(path.join(process.cwd(), 'client/dist')));
 
-const errorHandler: ErrorRequestHandler = (err: any, _req: Request, res: Response, next: NextFunction): any => {
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({ error: `请求体过大，最大支持 ${config.security.maxRequestSize}` });
+const errorHandler: ErrorRequestHandler = (err: unknown, _req: Request, res: Response, next: NextFunction) => {
+  if (err && typeof err === 'object' && (err as { type?: string }).type === 'entity.too.large') {
+    res.status(413).json({ error: `请求体过大，最大支持 ${config.security.maxRequestSize}` });
+    return;
   }
   next(err);
 };
@@ -285,7 +309,7 @@ const server = app.listen(config.server.port, config.server.host, () => {
   logger.info(`服务器已启动: ${config.server.host}:${config.server.port}`);
 });
 
-server.on('error', (error: any) => {
+server.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
     logger.error(`端口 ${config.server.port} 已被占用`);
     process.exit(1);

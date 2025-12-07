@@ -427,7 +427,7 @@ router.post('/tokens/export', async (req: Request, res: Response) => {
 });
 
 // 批量导入 Token (ZIP格式)
-router.post('/tokens/import', upload.single('file'), (err: any, _req: Request, res: Response, next: NextFunction): void => {
+router.post('/tokens/import', upload.single('file'), (err: unknown, _req: Request, res: Response, next: NextFunction): void => {
   if (err) {
     // Multer 错误处理
     if (err instanceof multer.MulterError) {

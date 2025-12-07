@@ -38,11 +38,9 @@ export async function triggerLogin() {
     });
 
     let authUrl = '';
-    let output = '';
 
     child.stdout.on('data', (data) => {
       const text = data.toString();
-      output += text;
 
       // 提取授权 URL
       const urlMatch = text.match(/(https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?[^\s]+)/);
@@ -209,7 +207,7 @@ function exchangeCodeForToken(code: string, origin: string): Promise<OAuthTokenR
 const MAX_IMPORT_ITEMS = 500;
 const MAX_TOKENS_JSON_SIZE = 5 * 1024 * 1024; // 5MB 防止巨型文件
 
-function validateImportedToken(token: unknown): boolean {
+function validateImportedToken(token: unknown): token is Record<string, unknown> & { access_token: string; refresh_token: string } {
   if (!token || typeof token !== 'object') return false;
   const t = token as Record<string, unknown>;
   const hasAccess = typeof t.access_token === 'string' && t.access_token.length > 0;
@@ -241,7 +239,7 @@ export async function importTokens(filePath: string): Promise<ImportResult> {
     let zip;
     try {
       zip = new AdmZip(filePath);
-    } catch (zipError) {
+    } catch {
       throw new Error('无法解析上传文件，请确保上传的是有效的 ZIP 文件');
     }
     const zipEntries = zip.getEntries();
@@ -304,6 +302,8 @@ export async function importTokens(filePath: string): Promise<ImportResult> {
     // 清理上传的文件
     try {
       await fs.unlink(filePath);
-    } catch (e) {}
+    } catch {
+      // 忽略删除失败
+    }
   }
 }

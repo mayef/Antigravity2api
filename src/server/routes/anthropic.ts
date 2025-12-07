@@ -116,7 +116,7 @@ interface AnthropicRouteDeps {
   generateAnthropicRequestBody: (messages: AnthropicMessage[], system: string | AnthropicContentBlock[] | undefined, model: string, params: GenerationParameters, tools: AnthropicTool[], apiKey?: string) => AntigravityRequestBody;
   countTokensSafe: (messages: OpenAIMessage[], model?: string) => TokenCountResult;
   countJsonTokensSafe: (value: unknown) => number;
-  safeJsonParse: (value: string, fallback?: unknown, options?: SafeJsonParseOptions) => unknown;
+  safeJsonParse: <T>(value: unknown, fallback: T, options?: SafeJsonParseOptions) => T;
   logger: Logger;
 }
 
@@ -132,11 +132,12 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
 
   const router = express.Router();
 
-  router.post('/messages', async (req: Request, res: Response): Promise<any> => {
+  router.post('/messages', async (req: Request, res: Response): Promise<void> => {
     const { messages, model, system, stream = true, tools = [], ...params } = req.body || {};
 
     if (!messages || !Array.isArray(messages) || !model) {
-      return res.status(400).json({ error: 'messages 和 model 为必填字段' });
+      res.status(400).json({ error: 'messages 和 model 为必填字段' });
+      return;
     }
 
     try {
@@ -208,7 +209,7 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
             toolCalls.forEach((tool, idx) => {
               let parsedInput;
               try {
-                parsedInput = safeJsonParse(
+                parsedInput = safeJsonParse<Record<string, unknown>>(
                   tool.function?.arguments || '{}',
                   {},
                   { strict: true, field: 'tool_use.input' }
@@ -238,13 +239,15 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
         if (parseError) {
           const err = parseError as Error;
           if (!res.headersSent) {
-            return res.status(400).json({ error: err.message || 'Parse error' });
+            res.status(400).json({ error: err.message || 'Parse error' });
+            return;
           }
           res.write(`event: error\ndata: ${JSON.stringify({
             type: 'error',
             error: err.message || 'Parse error'
           })}\n\n`);
-          return res.end();
+          res.end();
+          return;
         }
 
         if (contentStarted) {
@@ -324,7 +327,7 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
           toolCalls.forEach(tool => {
             let parsedInput;
             try {
-              parsedInput = safeJsonParse(
+              parsedInput = safeJsonParse<Record<string, unknown>>(
                 tool.function?.arguments || '{}',
                 {},
                 { strict: true, field: 'tool_use.input' }
@@ -344,7 +347,8 @@ function registerAnthropicRoutes(app: Application, deps: AnthropicRouteDeps): vo
 
         if (parseError) {
           const err = parseError as Error;
-          return res.status(400).json({ error: err.message || 'Parse error' });
+          res.status(400).json({ error: err.message || 'Parse error' });
+          return;
         }
 
         const message: OpenAIMessage = {

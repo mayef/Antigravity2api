@@ -80,11 +80,13 @@ function registerOpenAIRoutes(app: Application, deps: OpenAIRouteDeps): void {
     }
   });
 
-  router.post('/chat/completions', async (req: Request, res: Response): Promise<any> => {
-    let { messages, model, stream = true, tools = [], ...params } = req.body;
+  router.post('/chat/completions', async (req: Request, res: Response): Promise<void> => {
+    const { messages, model, tools = [], ...params } = req.body;
+    let stream = req.body.stream ?? true;
     try {
       if (!messages) {
-        return res.status(400).json({ error: 'messages is required' });
+        res.status(400).json({ error: 'messages is required' });
+        return;
       }
 
       // 智能检测：NewAPI 测速请求通常消息很简单，强制使用非流式响应

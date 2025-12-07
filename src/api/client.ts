@@ -1,7 +1,18 @@
 import tokenManager from '../auth/token-manager.js';
 import config from '../config/config.js';
+import type { AntigravityRequestBody, StreamCallbackData, OpenAIToolCall } from '../types/index.js';
 
-export async function generateAssistantResponse(requestBody: any, callback: (data: any) => void): Promise<void> {
+interface ModelsResponse {
+  object: string;
+  data: Array<{
+    id: string;
+    object: string;
+    created: number;
+    owned_by: string;
+  }>;
+}
+
+export async function generateAssistantResponse(requestBody: AntigravityRequestBody, callback: (data: StreamCallbackData) => void): Promise<void> {
   const token = await tokenManager.getToken();
 
   if (!token) {
@@ -34,7 +45,7 @@ export async function generateAssistantResponse(requestBody: any, callback: (dat
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let thinkingStarted = false;
-  let toolCalls: any[] = [];
+  let toolCalls: OpenAIToolCall[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
@@ -97,14 +108,14 @@ export async function generateAssistantResponse(requestBody: any, callback: (dat
           callback({ type: 'tool_calls', tool_calls: toolCalls });
           toolCalls = [];
         }
-      } catch (e) {
+      } catch {
         // 忽略解析错误
       }
     }
   }
 }
 
-export async function getAvailableModels(): Promise<any> {
+export async function getAvailableModels(): Promise<ModelsResponse> {
   const token = await tokenManager.getToken();
 
   if (!token) {
@@ -132,8 +143,9 @@ export async function getAvailableModels(): Promise<any> {
   let data;
   try {
     data = JSON.parse(responseText);
-  } catch (e: any) {
-    throw new Error(`JSON解析失败: ${e.message}. 原始响应: ${responseText.substring(0, 200)}`);
+  } catch (e) {
+    const err = e as Error;
+    throw new Error(`JSON解析失败: ${err.message}. 原始响应: ${responseText.substring(0, 200)}`);
   }
 
   return {
