@@ -313,7 +313,7 @@ function generateRequestBody(openaiMessages: OpenAIMessage[], modelName: string,
     modelName.startsWith('gemini-3-pro-') ||
     modelName === "rev19-uic3-1p" ||
     modelName === "gpt-oss-120b-medium"
-  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+  const actualModelName = (modelName.endsWith('-thinking') && modelName !== 'claude-opus-4-5-thinking') ? modelName.slice(0, -9) : modelName;
 
   // Use a default key if none provided (though it should be provided by the server)
   const cacheKey = apiKey || 'default';
@@ -479,7 +479,7 @@ function generateAnthropicRequestBody(messages: AnthropicMessage[], system: stri
     modelName.startsWith('gemini-3-pro-') ||
     modelName === "rev19-uic3-1p" ||
     modelName === "gpt-oss-120b-medium";
-  const actualModelName = modelName.endsWith('-thinking') ? modelName.slice(0, -9) : modelName;
+  const actualModelName = (modelName.endsWith('-thinking') && modelName !== 'claude-opus-4-5-thinking') ? modelName.slice(0, -9) : modelName;
 
   const cacheKey = apiKey || 'default';
   const { projectId, sessionId } = getCachedIds(cacheKey);
