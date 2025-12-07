@@ -198,10 +198,8 @@ app.use(errorHandler);
 
 // 请求日志中间件
 app.use((req: Request, res: Response, next: NextFunction) => {
-  // 记录请求活动，管理空闲状态
-  if (req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/')) {
-    idleManager.recordActivity();
-  }
+  // 记录所有请求活动，管理空闲状态（包括管理界面的请求）
+  idleManager.recordActivity();
 
   const start = Date.now();
   res.on('finish', () => {

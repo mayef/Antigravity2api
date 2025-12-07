@@ -32,8 +32,8 @@ export async function triggerLogin() {
   return new Promise((resolve, reject) => {
     logger.info('启动登录流程...');
 
-    const loginScript = path.join(process.cwd(), 'scripts', 'oauth-server.js');
-    const child = spawn('node', [loginScript], {
+    const loginScript = path.join(process.cwd(), 'scripts', 'oauth-server.ts');
+    const child = spawn(process.execPath, ['--import', 'tsx', loginScript], {
       stdio: 'pipe'
     });
 

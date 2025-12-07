@@ -10,12 +10,22 @@ const colors = {
 function logMessage(level: 'info' | 'warn' | 'error', ...args: unknown[]): void {
   const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
   const color = { info: colors.green, warn: colors.yellow, error: colors.red }[level];
-  console.error(`${colors.gray}${timestamp}${colors.reset} ${color}[${level}]${colors.reset}`, ...args);
+  const output = `${colors.gray}${timestamp}${colors.reset} ${color}[${level}]${colors.reset}`;
+  if (level === 'error') {
+    console.error(output, ...args);
+  } else {
+    console.log(output, ...args);
+  }
 }
 
 function logRequest(method: string, path: string, status: number, duration: number): void {
   const statusColor = status >= 500 ? colors.red : status >= 400 ? colors.yellow : colors.green;
-  console.error(`${colors.cyan}[${method}]${colors.reset} - ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}`);
+  const line = `${colors.cyan}[${method}]${colors.reset} - ${path} ${statusColor}${status}${colors.reset} ${colors.gray}${duration}ms${colors.reset}`;
+  if (status >= 400) {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
 }
 
 export const log = {

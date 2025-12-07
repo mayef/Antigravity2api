@@ -13,7 +13,7 @@ class IdleManager {
 
   constructor() {
     this.lastRequestTime = Date.now();
-    this.idleTimeout = 30 * 1000; // 30秒无请求后进入空闲模式（极致优化）
+    this.idleTimeout = 5 * 60 * 1000; // 5分钟无请求后进入空闲模式
     this.isIdle = false;
     this.gcInterval = null;
     this.checkInterval = null;
