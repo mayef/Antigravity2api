@@ -19,8 +19,16 @@ function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-// 存储有效的会话 token
-const sessions = new Map<string, { created: number; lastAccess: number }>();
+// 存储有效的会话 token，增加安全信息
+interface SessionInfo {
+  created: number;
+  lastAccess: number;
+  ip?: string;
+  userAgent?: string;
+  regenerationCount: number;  // 会话重生成次数，用于检测异常
+}
+
+const sessions = new Map<string, SessionInfo>();
 
 // 会话过期时间（24小时）
 const SESSION_EXPIRY = 24 * 60 * 60 * 1000;
@@ -31,18 +39,21 @@ const LOGIN_LIMIT = 10; // 每 IP 每小时最多尝试次数
 const LOGIN_WINDOW = 60 * 60 * 1000; // 1小时
 const MAX_TRACKED_IPS = 10000; // 最多跟踪 IP 数，防止内存耗尽
 
-// 生成会话 token
-export function createSession(): string {
+// 生成会话 token，支持安全信息记录
+export function createSession(ip?: string, userAgent?: string): string {
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, {
     created: Date.now(),
-    lastAccess: Date.now()
+    lastAccess: Date.now(),
+    ip,
+    userAgent,
+    regenerationCount: 0
   });
   return token;
 }
 
-// 验证会话
-export function validateSession(token: string | undefined): boolean {
+// 验证会话，增加安全检查
+export function validateSession(token: string | undefined, ip?: string, userAgent?: string): boolean {
   if (!token) return false;
 
   const session = sessions.get(token);
@@ -54,6 +65,18 @@ export function validateSession(token: string | undefined): boolean {
     return false;
   }
 
+  // 会话劫持检测：检查IP地址变化（可选，根据部署环境决定）
+  if (session.ip && ip && session.ip !== ip) {
+    // IP地址发生变化，可能存在会话劫持风险
+    // 在生产环境中可能需要更复杂的逻辑来处理合法的IP变化
+    console.warn(`会话安全警告: IP地址变化 ${session.ip} -> ${ip}`);
+  }
+
+  // User-Agent变化检测
+  if (session.userAgent && userAgent && session.userAgent !== userAgent) {
+    console.warn(`会话安全警告: User-Agent变化`);
+  }
+
   // 更新最后访问时间
   session.lastAccess = Date.now();
   return true;
@@ -62,6 +85,32 @@ export function validateSession(token: string | undefined): boolean {
 // 删除会话
 export function destroySession(token: string): void {
   sessions.delete(token);
+}
+
+// 会话重生成（防止会话固定攻击）
+export function regenerateSession(oldToken: string, ip?: string, userAgent?: string): string | null {
+  const session = sessions.get(oldToken);
+  if (!session) return null;
+
+  // 删除旧会话
+  sessions.delete(oldToken);
+  
+  // 创建新会话，保留部分信息
+  const newToken = crypto.randomBytes(32).toString('hex');
+  sessions.set(newToken, {
+    created: session.created,  // 保持原始创建时间
+    lastAccess: Date.now(),
+    ip: ip || session.ip,
+    userAgent: userAgent || session.userAgent,
+    regenerationCount: session.regenerationCount + 1
+  });
+
+  // 检测异常重生成行为
+  if (session.regenerationCount > 5) {
+    console.warn(`会话安全警告: 异常的会话重生成次数 ${session.regenerationCount}`);
+  }
+
+  return newToken;
 }
 
 // 验证密码
@@ -132,17 +181,31 @@ export function recordLoginAttempt(ip: string): void {
   
   if (!data || now - data.firstAttempt > LOGIN_WINDOW) {
     // 新窗口或时间窗口已过
-    // 防止内存耗尽：如果跟踪 IP 数超限，先清理最早的记录
+    // 防止内存耗尽：使用更高效的清理策略
     if (loginAttempts.size >= MAX_TRACKED_IPS) {
-      let oldest = null;
-      let oldestTime = Infinity;
+      // 批量清理过期记录，避免逐一查找
+      const cutoffTime = now - LOGIN_WINDOW;
+      const toDelete: string[] = [];
+      
       for (const [existingIp, existingData] of loginAttempts.entries()) {
-        if (existingData.firstAttempt < oldestTime) {
-          oldest = existingIp;
-          oldestTime = existingData.firstAttempt;
+        if (existingData.firstAttempt < cutoffTime) {
+          toDelete.push(existingIp);
         }
       }
-      if (oldest) loginAttempts.delete(oldest);
+      
+      // 如果过期记录不够清理，删除一些较早的记录
+      if (toDelete.length === 0) {
+        const entries = Array.from(loginAttempts.entries());
+        entries.sort((a, b) => a[1].firstAttempt - b[1].firstAttempt);
+        // 删除最早的25%记录
+        const deleteCount = Math.max(1, Math.floor(entries.length * 0.25));
+        for (let i = 0; i < deleteCount; i++) {
+          toDelete.push(entries[i][0]);
+        }
+      }
+      
+      // 批量删除
+      toDelete.forEach(ipToDelete => loginAttempts.delete(ipToDelete));
     }
     loginAttempts.set(ip, { count: 1, firstAttempt: now });
   } else {
@@ -155,7 +218,12 @@ export function adminAuth(req: Request, res: Response, next: NextFunction): void
   // 仅从 Header 读取 Token，避免 URL 参数被记录到日志
   const token = req.headers['x-admin-token'] as string | undefined;
 
-  if (validateSession(token)) {
+  // 获取客户端 IP
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const ip = req.ip || (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress || 'unknown';
+  const userAgent = req.headers['user-agent'];
+
+  if (validateSession(token, ip, userAgent)) {
     next();
   } else {
     res.status(401).json({ error: '未授权，请先登录' });

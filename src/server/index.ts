@@ -13,6 +13,7 @@ import config from '../config/config.js';
 import adminRoutes, { incrementRequestCount, addLog } from '../admin/routes.js';
 import { validateKey, checkRateLimit } from '../admin/key-manager.js';
 import idleManager from '../utils/idle-manager.js';
+import { sanitizeForLog, formatRequestLog } from '../utils/validators.js';
 
 const DISALLOWED_SPECIAL_TOKENS = ['<|endoftext|>', '<|endofprompt|>', '<|fim_prefix|>', '<|fim_middle|>', '<|fim_suffix|>'];
 
@@ -210,7 +211,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     // 记录到管理日志
     if (req.path.startsWith('/v1/') || req.path.startsWith('/anthropic/v1/')) {
       incrementRequestCount();
-      addLog('info', `${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+      addLog('info', formatRequestLog(req.method, req.path, res.statusCode, duration));
     }
   });
   next();
@@ -244,15 +245,15 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
       // 再检查数据库中的密钥
       const isValid = await validateKey(providedKey);
       if (!isValid) {
-        logger.warn(`API Key 验证失败: ${req.method} ${req.path}`);
-        await addLog('warn', `API Key 验证失败: ${req.method} ${req.path}`);
+        logger.warn(`API Key 验证失败: ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)}`);
+        await addLog('warn', `API Key 验证失败: ${formatRequestLog(req.method, req.path, 401, 0)}`);
         return res.status(401).json({ error: 'Invalid API Key' });
       }
 
       // 检查频率限制
       const rateLimitCheck = await checkRateLimit(providedKey);
       if (!rateLimitCheck.allowed) {
-        logger.warn(`频率限制: ${req.method} ${req.path} - ${rateLimitCheck.error}`);
+        logger.warn(`频率限制: ${sanitizeForLog(req.method)} ${sanitizeForLog(req.path)} - ${rateLimitCheck.error}`);
         await addLog('warn', `频率限制触发: ${providedKey ? providedKey.substring(0, 10) : 'unknown'}...`);
 
         res.setHeader('X-RateLimit-Limit', rateLimitCheck.limit || 0);

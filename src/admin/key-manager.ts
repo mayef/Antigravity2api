@@ -4,6 +4,23 @@ import crypto from 'crypto';
 import logger from '../utils/logger.js';
 import { Mutex } from '../utils/mutex.js';
 
+// 时序安全的字符串比较，防止时序攻击
+function timingSafeEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) {
+    // 长度不同时仍进行比较以保持时间一致
+    const bufPadded = Buffer.alloc(bufA.length);
+    bufB.copy(bufPadded);
+    crypto.timingSafeEqual(bufA, bufPadded);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 const KEYS_FILE = path.join(process.cwd(), 'data', 'api_keys.json');
 const fileMutex = new Mutex();
 
@@ -146,17 +163,25 @@ export async function deleteKey(keyToDelete: string) {
   return true;
 }
 
-// 验证密钥
+// 验证密钥（使用时序安全比较）
 export async function validateKey(keyToCheck: string) {
   await ensureInitialized();
   
   if (!keysCache) return false;
 
-  const key = keysCache.find((k: ApiKey) => k.key === keyToCheck);
-  if (key) {
+  // 使用时序安全比较防止时序攻击
+  let matchedKey: ApiKey | null = null;
+  for (const k of keysCache) {
+    if (timingSafeEqual(k.key, keyToCheck)) {
+      matchedKey = k;
+      break;
+    }
+  }
+  
+  if (matchedKey) {
     // 更新使用信息 (仅内存)
-    key.lastUsed = new Date().toISOString();
-    key.requests = (key.requests || 0) + 1;
+    matchedKey.lastUsed = new Date().toISOString();
+    matchedKey.requests = (matchedKey.requests || 0) + 1;
     // 注意：此处不立即保存，依赖定期自动保存或关键操作时的保存
     return true;
   }
@@ -196,13 +221,20 @@ export async function updateKeyRateLimit(keyToUpdate: string, rateLimit: RateLim
   return key;
 }
 
-// 检查频率限制
+// 检查频率限制（使用时序安全比较）
 export async function checkRateLimit(keyToCheck: string) {
   await ensureInitialized();
   
   if (!keysCache) return { allowed: false, error: '系统错误' };
 
-  const key = keysCache.find((k: ApiKey) => k.key === keyToCheck);
+  // 使用时序安全比较查找密钥
+  let key: ApiKey | undefined;
+  for (const k of keysCache) {
+    if (timingSafeEqual(k.key, keyToCheck)) {
+      key = k;
+      break;
+    }
+  }
 
   if (!key) {
     return { allowed: false, error: '密钥不存在' };

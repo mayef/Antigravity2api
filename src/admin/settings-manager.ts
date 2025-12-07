@@ -35,14 +35,14 @@ export async function loadSettings(): Promise<AppConfig> {
         host: 'daily-cloudcode-pa.sandbox.googleapis.com',
         userAgent: 'antigravity/1.11.3 windows/amd64'
       },
-      defaults: { temperature: 1, top_p: 0.85, top_k: 50, max_tokens: 8096 },
-      security: { maxRequestSize: '50mb', apiKey: null, adminPassword: null },
+      defaults: { temperature: 1, top_p: 0.85, top_k: 50, max_tokens: 64000 },
+      security: { maxRequestSize: '10mb', apiKey: null, adminPassword: null },
       systemInstruction: '你是聊天机器人，专门为用户提供聊天和情绪价值，协助进行小说创作或者角色扮演，也可以提供数学或者代码上的建议'
     };
   }
 }
 
-// 保存设置
+// 保存设置（输入验证已在路由层完成）
 export async function saveSettings(newSettings: Partial<AppConfig>): Promise<{ success: boolean; message: string }> {
   try {
     // 读取现有配置
@@ -54,38 +54,48 @@ export async function saveSettings(newSettings: Partial<AppConfig>): Promise<{ s
       config = {} as AppConfig;
     }
 
-    // 合并设置
+    // 合并设置（确保默认值）
     config.server = config.server || { port: 8045, host: '0.0.0.0' };
     config.security = config.security || { maxRequestSize: '50mb', apiKey: null, adminPassword: null };
     config.defaults = config.defaults || { temperature: 1, top_p: 0.85, top_k: 50, max_tokens: 8096 };
 
     // 更新服务器配置
     if (newSettings.server) {
-      const newPort = newSettings.server.port ? Number(newSettings.server.port) : undefined;
-      if (newPort && !isNaN(newPort)) config.server.port = newPort;
-      config.server.host = newSettings.server.host || config.server.host;
+      if (newSettings.server.port !== undefined) {
+        config.server.port = Number(newSettings.server.port);
+      }
+      if (newSettings.server.host !== undefined) {
+        config.server.host = newSettings.server.host;
+      }
     }
 
     // 更新安全配置
     if (newSettings.security) {
-      config.security.apiKey = newSettings.security.apiKey !== undefined ? newSettings.security.apiKey : config.security.apiKey;
-      config.security.adminPassword = newSettings.security.adminPassword !== undefined ? newSettings.security.adminPassword : config.security.adminPassword;
-      config.security.maxRequestSize = newSettings.security.maxRequestSize || config.security.maxRequestSize;
+      if (newSettings.security.apiKey !== undefined) {
+        config.security.apiKey = newSettings.security.apiKey;
+      }
+      if (newSettings.security.adminPassword !== undefined) {
+        config.security.adminPassword = newSettings.security.adminPassword;
+      }
+      if (newSettings.security.maxRequestSize !== undefined) {
+        config.security.maxRequestSize = newSettings.security.maxRequestSize;
+      }
     }
 
     // 更新默认参数
     if (newSettings.defaults) {
-      const temp = newSettings.defaults.temperature !== undefined ? Number(newSettings.defaults.temperature) : NaN;
-      if (!isNaN(temp)) config.defaults.temperature = temp;
-
-      const topP = newSettings.defaults.top_p !== undefined ? Number(newSettings.defaults.top_p) : NaN;
-      if (!isNaN(topP)) config.defaults.top_p = topP;
-
-      const topK = newSettings.defaults.top_k !== undefined ? Number(newSettings.defaults.top_k) : NaN;
-      if (!isNaN(topK)) config.defaults.top_k = topK;
-
-      const maxTokens = newSettings.defaults.max_tokens !== undefined ? Number(newSettings.defaults.max_tokens) : NaN;
-      if (!isNaN(maxTokens)) config.defaults.max_tokens = maxTokens;
+      if (newSettings.defaults.temperature !== undefined) {
+        config.defaults.temperature = Number(newSettings.defaults.temperature);
+      }
+      if (newSettings.defaults.top_p !== undefined) {
+        config.defaults.top_p = Number(newSettings.defaults.top_p);
+      }
+      if (newSettings.defaults.top_k !== undefined) {
+        config.defaults.top_k = Number(newSettings.defaults.top_k);
+      }
+      if (newSettings.defaults.max_tokens !== undefined) {
+        config.defaults.max_tokens = Number(newSettings.defaults.max_tokens);
+      }
     }
 
     // 更新系统指令

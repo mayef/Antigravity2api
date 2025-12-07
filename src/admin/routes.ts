@@ -5,7 +5,7 @@ import { createKey, loadKeys, deleteKey, updateKeyRateLimit, getKeyStats } from 
 import { getRecentLogs, clearLogs, addLog } from './log-manager.js';
 import { getSystemStatus, getTodayRequestCount } from './monitor.js';
 import { loadAccounts, deleteAccount, toggleAccount, triggerLogin, getAccountStats, addTokenFromCallback, getAccountName, importTokens } from './token-admin.js';
-import { createSession, validateSession, destroySession, verifyPassword, adminAuth, checkLoginLimit, recordLoginAttempt } from './session.js';
+import { createSession, validateSession, destroySession, verifyPassword, adminAuth, checkLoginLimit, recordLoginAttempt, regenerateSession } from './session.js';
 import { loadSettings, saveSettings } from './settings-manager.js';
 import tokenManager from '../auth/token-manager.js';
 import { checkString, checkNumberRange, checkArray } from '../utils/validators.js';
@@ -48,14 +48,15 @@ router.post('/login', async (req: Request, res: Response) => {
     }
     
     const { password } = req.body;
-    const err = checkString({ name: '密码', value: password, min: 6, max: 128 });
+    const err = checkString({ name: '密码', value: password, min: 8, max: 128 });
     if (err) return res.status(400).json({ error: err });
 
     // 记录登录尝试
     recordLoginAttempt(ip);
 
     if (verifyPassword(password)) {
-      const token = createSession();
+      const userAgent = req.headers['user-agent'];
+      const token = createSession(ip, userAgent);
       await addLog('info', '管理员登录成功');
       return res.json({ success: true, token });
     } else {
@@ -80,7 +81,13 @@ router.post('/logout', (req: Request, res: Response) => {
 // 验证会话接口
 router.get('/verify', (req: Request, res: Response) => {
   const token = req.headers['x-admin-token'] as string | undefined;
-  if (validateSession(token)) {
+
+  // 获取客户端 IP
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const ip = req.ip || (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress || 'unknown';
+  const userAgent = req.headers['user-agent'];
+
+  if (validateSession(token, ip, userAgent)) {
     return res.json({ valid: true });
   } else {
     return res.status(401).json({ valid: false });
@@ -89,6 +96,37 @@ router.get('/verify', (req: Request, res: Response) => {
 
 // 以下所有路由需要认证
 router.use(adminAuth);
+
+// 会话刷新接口（重新生成 token）
+router.post('/session/regenerate', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers['x-admin-token'] as string | undefined;
+    
+    if (!token) {
+      return res.status(401).json({ error: '缺少认证 token' });
+    }
+
+    // 获取客户端 IP
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ip = req.ip || (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : '') || req.socket.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'];
+
+    // 重新生成会话
+    const newToken = regenerateSession(token, ip, userAgent);
+    
+    if (newToken) {
+      await addLog('info', '管理员会话已重新生成');
+      return res.json({ success: true, token: newToken });
+    } else {
+      await addLog('warn', '会话重新生成失败：无效的会话 token');
+      return res.status(401).json({ error: '无效的会话，请重新登录' });
+    }
+  } catch (error) {
+    const err = error as Error;
+    await addLog('error', `会话重新生成失败: ${err.message}`);
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // 生成新密钥
 router.post('/keys/generate', async (req: Request, res: Response) => {
@@ -185,7 +223,13 @@ router.get('/keys/stats', async (_req: Request, res: Response) => {
 // 获取日志
 router.get('/logs', async (req: Request, res: Response) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limitStr = req.query.limit as string;
+    let limit = 100;
+    if (limitStr) {
+      limit = parseInt(limitStr);
+      const err = checkNumberRange({ name: '日志数量', value: limit, min: 1, max: 10000 });
+      if (err) return res.status(400).json({ error: err });
+    }
     const logs = await getRecentLogs(limit);
     return res.json(logs);
   } catch (error) {
@@ -251,6 +295,8 @@ router.get('/tokens', async (_req: Request, res: Response) => {
 router.delete('/tokens/:index', async (req: Request, res: Response) => {
   try {
     const index = parseInt(req.params.index);
+    const indexErr = checkNumberRange({ name: '账号索引', value: index, min: 0, max: 100000 });
+    if (indexErr) return res.status(400).json({ error: indexErr });
     await deleteAccount(index);
     await addLog('warn', `Token 账号 ${index} 已删除`);
     return res.json({ success: true });
@@ -265,7 +311,12 @@ router.delete('/tokens/:index', async (req: Request, res: Response) => {
 router.patch('/tokens/:index', async (req: Request, res: Response) => {
   try {
     const index = parseInt(req.params.index);
+    const indexErr = checkNumberRange({ name: '账号索引', value: index, min: 0, max: 100000 });
+    if (indexErr) return res.status(400).json({ error: indexErr });
     const { enable } = req.body;
+    if (typeof enable !== 'boolean') {
+      return res.status(400).json({ error: 'enable 必须为布尔值' });
+    }
     await toggleAccount(index, enable);
     await addLog('info', `Token 账号 ${index} 已${enable ? '启用' : '禁用'}`);
     return res.json({ success: true });
@@ -280,6 +331,11 @@ router.patch('/tokens/:index', async (req: Request, res: Response) => {
 router.post('/tokens/toggle', async (req: Request, res: Response) => {
   try {
     const { index, enable } = req.body;
+    const indexErr = checkNumberRange({ name: '账号索引', value: index, min: 0, max: 100000 });
+    if (indexErr) return res.status(400).json({ error: indexErr });
+    if (typeof enable !== 'boolean') {
+      return res.status(400).json({ error: 'enable 必须为布尔值' });
+    }
     await toggleAccount(index, enable);
     await addLog('info', `Token 账号 ${index} 已${enable ? '启用' : '禁用'}`);
     return res.json({ success: true });
@@ -473,9 +529,74 @@ router.get('/settings', async (_req: Request, res: Response) => {
   }
 });
 
-// 保存系统设置
+// 保存系统设置（带输入验证）
 router.post('/settings', async (req: Request, res: Response) => {
   try {
+    const { server, security, defaults, systemInstruction } = req.body || {};
+    const errors: string[] = [];
+
+    // 验证服务器配置
+    if (server) {
+      if (server.port !== undefined) {
+        const portNum = Number(server.port);
+        const portErr = checkNumberRange({ name: '端口', value: portNum, min: 1, max: 65535 });
+        if (portErr) errors.push(portErr);
+      }
+      if (server.host !== undefined) {
+        const hostErr = checkString({ name: '监听地址', value: server.host, max: 256 });
+        if (hostErr) errors.push(hostErr);
+      }
+    }
+
+    // 验证安全配置
+    if (security) {
+      if (security.apiKey !== undefined && security.apiKey !== null) {
+        const keyErr = checkString({ name: 'API Key', value: security.apiKey, max: 256, optional: true });
+        if (keyErr) errors.push(keyErr);
+      }
+      if (security.adminPassword !== undefined && security.adminPassword !== null && security.adminPassword !== '') {
+        const pwdErr = checkString({ name: '管理员密码', value: security.adminPassword, min: 8, max: 256 });
+        if (pwdErr) errors.push(pwdErr);
+      }
+      if (security.maxRequestSize !== undefined) {
+        const sizePattern = /^\d+(kb|mb|gb)?$/i;
+        if (!sizePattern.test(security.maxRequestSize)) {
+          errors.push('请求体大小格式无效，应为如 50mb, 100kb 格式');
+        }
+      }
+    }
+
+    // 验证默认参数
+    if (defaults) {
+      if (defaults.temperature !== undefined) {
+        const tempErr = checkNumberRange({ name: 'Temperature', value: Number(defaults.temperature), min: 0, max: 2 });
+        if (tempErr) errors.push(tempErr);
+      }
+      if (defaults.top_p !== undefined) {
+        const topPErr = checkNumberRange({ name: 'Top P', value: Number(defaults.top_p), min: 0, max: 1 });
+        if (topPErr) errors.push(topPErr);
+      }
+      if (defaults.top_k !== undefined) {
+        const topKErr = checkNumberRange({ name: 'Top K', value: Number(defaults.top_k), min: 1, max: 1000 });
+        if (topKErr) errors.push(topKErr);
+      }
+      if (defaults.max_tokens !== undefined) {
+        const maxTErr = checkNumberRange({ name: '最大 Token 数', value: Number(defaults.max_tokens), min: 1, max: 1000000 });
+        if (maxTErr) errors.push(maxTErr);
+      }
+    }
+
+    // 验证系统指令
+    if (systemInstruction !== undefined) {
+      const sysErr = checkString({ name: '系统指令', value: systemInstruction, max: 50000, optional: true });
+      if (sysErr) errors.push(sysErr);
+    }
+
+    // 返回第一个错误
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors[0] });
+    }
+
     const result = await saveSettings(req.body);
     await addLog('success', '系统设置已更新');
     return res.json(result);

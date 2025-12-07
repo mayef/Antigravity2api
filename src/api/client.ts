@@ -1,6 +1,30 @@
 import tokenManager from '../auth/token-manager.js';
 import config from '../config/config.js';
+import log from '../utils/logger.js';
 import type { AntigravityRequestBody, StreamCallbackData, OpenAIToolCall } from '../types/index.js';
+
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000;
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      const error = err as Error;
+      const isNetworkError = error.message === 'fetch failed' || error.message.includes('ECONNRESET') || error.message.includes('ETIMEDOUT');
+      
+      if (!isNetworkError || attempt === retries) {
+        throw error;
+      }
+      
+      const delay = INITIAL_DELAY_MS * Math.pow(2, attempt - 1);
+      log.warn(`网络请求失败 (尝试 ${attempt}/${retries}): ${error.message}，${delay}ms 后重试...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('重试次数已耗尽');
+}
 
 interface ModelsResponse {
   object: string;
@@ -21,7 +45,7 @@ export async function generateAssistantResponse(requestBody: AntigravityRequestB
 
   const url = config.api.url;
 
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'Host': config.api.host,
@@ -122,7 +146,7 @@ export async function getAvailableModels(): Promise<ModelsResponse> {
     throw new Error('没有可用的token，请运行 npm run login 获取token');
   }
 
-  const response = await fetch(config.api.modelsUrl, {
+  const response = await fetchWithRetry(config.api.modelsUrl, {
     method: 'POST',
     headers: {
       'Host': config.api.host,

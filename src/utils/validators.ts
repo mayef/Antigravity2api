@@ -53,3 +53,23 @@ export function checkArray(rule: ArrayRule): string | null {
   if (value.length > max) return `${name} 数量不能超过 ${max}`;
   return null;
 }
+
+// 日志安全处理工具
+export function sanitizeForLog(input: string): string {
+  if (typeof input !== 'string') return String(input);
+  
+  // 移除或替换可能破坏日志结构的字符
+  return input
+    .replace(/[\r\n]/g, ' ')  // 替换换行符为空格
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, '')  // 移除控制字符
+    .replace(/[^\x20-\x7e\u00a0-\uffff]/g, '')  // 只保留可打印字符
+    .substring(0, 1000);  // 限制长度防止日志过长
+}
+
+// HTTP请求日志安全格式化
+export function formatRequestLog(method: string, path: string, statusCode: number, duration: number): string {
+  const safeMethod = sanitizeForLog(method);
+  const safePath = sanitizeForLog(path);
+  return `${safeMethod} ${safePath} - ${statusCode} (${duration}ms)`;
+}
