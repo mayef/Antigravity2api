@@ -149,30 +149,8 @@ export async function deleteKey(keyToDelete: string) {
   
   if (!keysCache) throw new Error('初始化失败');
 
-  let actualKeyToDelete = keyToDelete;
-
-  // 检查是否是截断的密钥（包含 '...' 且符合截断模式）
-  if (keyToDelete.includes('...')) {
-    // 从截断的密钥中提取前缀和后缀
-    const parts = keyToDelete.split('...');
-    if (parts.length === 2) {
-      const prefix = parts[0]; // 前10个字符
-      const suffix = parts[1]; // 后4个字符
-      
-      // 在缓存中查找匹配的完整密钥
-      const matchedKey = keysCache.find((k: ApiKey) =>
-        k.key.startsWith(prefix) && k.key.endsWith(suffix)
-      );
-      
-      if (matchedKey) {
-        actualKeyToDelete = matchedKey.key;
-      }
-      // 如果没找到匹配的密钥，保持 actualKeyToDelete 不变，后续会抛出"密钥不存在"错误
-    }
-  }
-
   const initialLength = keysCache.length;
-  keysCache = keysCache.filter((k: ApiKey) => k.key !== actualKeyToDelete);
+  keysCache = keysCache.filter((k: ApiKey) => k.key !== keyToDelete);
   
   if (keysCache.length === initialLength) {
     throw new Error('密钥不存在');
@@ -181,7 +159,7 @@ export async function deleteKey(keyToDelete: string) {
   // 立即同步到磁盘
   await persistKeys();
   
-  logger.info(`密钥已删除: ${actualKeyToDelete.substring(0, 10)}...`);
+  logger.info(`密钥已删除: ${keyToDelete.substring(0, 10)}...`);
   return true;
 }
 

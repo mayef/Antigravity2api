@@ -160,12 +160,7 @@ router.post('/keys/generate', async (req: Request, res: Response) => {
 router.get('/keys', async (_req: Request, res: Response) => {
   try {
     const keys = await loadKeys();
-    // 返回密钥列表（隐藏部分字符）
-    const safeKeys = keys.map((k) => ({
-      ...k,
-      key: k.key.substring(0, 10) + '...' + k.key.substring(k.key.length - 4)
-    }));
-    return res.json(safeKeys); // 隐藏部分密钥字符
+    return res.json(keys);
   } catch (error) {
     const err = error as Error;
     return res.status(500).json({ error: err.message });
