@@ -25,7 +25,8 @@ interface SessionInfo {
   lastAccess: number;
   ip?: string;
   userAgent?: string;
-  regenerationCount: number;  // 会话重生成次数，用于检测异常
+  regenerationCount: number;  // 会话重生成总次数（保留用于统计）
+  regenerationHistory: number[];  // 最近重生成的时间戳列表，用于时间窗口检测
 }
 
 const sessions = new Map<string, SessionInfo>();
@@ -47,7 +48,8 @@ export function createSession(ip?: string, userAgent?: string): string {
     lastAccess: Date.now(),
     ip,
     userAgent,
-    regenerationCount: 0
+    regenerationCount: 0,
+    regenerationHistory: []
   });
   return token;
 }
@@ -92,6 +94,25 @@ export function regenerateSession(oldToken: string, ip?: string, userAgent?: str
   const session = sessions.get(oldToken);
   if (!session) return null;
 
+  const now = Date.now();
+  const DETECTION_WINDOW_MS = 5 * 60 * 1000; // 5分钟检测窗口
+  const MAX_REGENERATIONS_IN_WINDOW = 10;  // 5分钟内最多允许10次重生成
+
+  // 清理5分钟之前的历史记录
+  const recentHistory = (session.regenerationHistory || []).filter(
+    timestamp => now - timestamp < DETECTION_WINDOW_MS
+  );
+
+  // 添加当前重生成时间戳
+  recentHistory.push(now);
+
+  // 检测异常重生成行为：短时间内频繁刷新
+  if (recentHistory.length > MAX_REGENERATIONS_IN_WINDOW) {
+    console.warn(
+      `会话安全警告: 异常的会话重生成次数 ${recentHistory.length} 次（5分钟内），总计 ${session.regenerationCount + 1} 次`
+    );
+  }
+
   // 删除旧会话
   sessions.delete(oldToken);
   
@@ -99,16 +120,12 @@ export function regenerateSession(oldToken: string, ip?: string, userAgent?: str
   const newToken = crypto.randomBytes(32).toString('hex');
   sessions.set(newToken, {
     created: session.created,  // 保持原始创建时间
-    lastAccess: Date.now(),
+    lastAccess: now,
     ip: ip || session.ip,
     userAgent: userAgent || session.userAgent,
-    regenerationCount: session.regenerationCount + 1
+    regenerationCount: session.regenerationCount + 1,
+    regenerationHistory: recentHistory
   });
-
-  // 检测异常重生成行为
-  if (session.regenerationCount > 5) {
-    console.warn(`会话安全警告: 异常的会话重生成次数 ${session.regenerationCount}`);
-  }
 
   return newToken;
 }
